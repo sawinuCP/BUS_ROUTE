@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare environment file
+        run: cp .env.example .env
+
+      - name: Build backend image (pinned python:3.12-slim, ADR-0005)
+        run: docker compose --env-file .env -f infra/docker/compose.yaml build backend
+
+      - name: Format check, lint, type-check and tests
+        run: >
+          docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend
+          sh -c "ruff format --check . && ruff check . && mypy && pytest"
+
+      # `compose run` starts the db dependency automatically (ephemeral in CI).
+      - name: Migration tooling wiring (baseline up, then down)
+        run: >
+          docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend
+          sh -c "alembic upgrade head && alembic downgrade base"
+
+  mobile:
+    name: Mobile (lint, types, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Unit/component tests
+        run: npm test

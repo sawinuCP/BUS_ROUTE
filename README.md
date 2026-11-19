@@ -14,6 +14,26 @@ docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend pyt
 
 Then open <http://localhost:8000/api/v1/health> (liveness), `/api/v1/ready` (readiness) and `/api/v1/docs` (OpenAPI). Full details: [backend/README.md](backend/README.md).
 
+## Quickstart (mobile — Phase 0.4)
+
+Prerequisites: Node.js 22.
+
+```powershell
+cd apps/mobile
+npm install
+copy .env.example .env        # then adjust EXPO_PUBLIC_API_BASE_URL if needed
+npm run typecheck             # tsc --noEmit (strict)
+npm run lint                  # eslint-config-expo
+npm test                      # jest + jest-expo + React Native Testing Library
+npm start                     # Expo dev server (simulator/device launch needs Android Studio / Xcode)
+```
+
+Full details: [apps/mobile/README.md](apps/mobile/README.md).
+
+## CI
+
+`.github/workflows/ci.yml` runs on push/PR: a **backend** job (format/lint/type-check/tests plus the Alembic baseline up/down wiring in the compose stack) and a **mobile** job (`npm ci`, lint, type-check, tests).
+
 ## Documentation layout
 
 All project documentation lives under `docs/` (consolidated per ADR-0001):
@@ -55,7 +75,7 @@ See [architecture/README.md](architecture/README.md) for the full index (`00` Ex
 - ADR-0001 — Documentation layout, canonical phase numbering and user-story register
 - ADR-0002 — Ratified baseline technology stack
 - ADR-0003 — Redis scope in the MVP
-- ADR-0004 — Background job processing library (proposed)
+- ADR-0004 — Background job processing library
 - ADR-0005 — Docker-first local development environment (pinned Python 3.12)
 
 ## How to use

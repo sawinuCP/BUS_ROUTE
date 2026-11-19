@@ -1,8 +1,8 @@
 # ADR-0004 — Background job processing library
 
 **Date:** 2026-11-19
-**Status:** Proposed — must be confirmed before any worker code is written (Phase 0.3 may proceed without it)
-**Deciders:** Coding agent recommendation; pending product-owner confirmation
+**Status:** Accepted (confirmed by the product owner on 2026-11-19)
+**Deciders:** Product owner
 **Phase/task context:** Phase 0.2 (audit finding C2 / GAP-006); the ratified stack deferred this selection to an ADR
 
 ## 1. Context
