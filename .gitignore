@@ -1,0 +1,62 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ---- Node / Expo / React Native ----
+node_modules/
+.expo/
+.expo-shared/
+dist/
+build/
+web-build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# ---- Environment & secrets (placeholders in .env.example only) ----
+.env
+.env.*
+!.env.example
+
+# ---- Local data, logs, temp ----
+data/local/
+*.log
+tmp/
+temp/
+
+# ---- Databases / dumps ----
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+
+# ---- Docker local volumes ----
+.docker/
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- OS metadata for docs tooling ----
+~$*

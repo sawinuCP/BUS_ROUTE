@@ -1,0 +1,27 @@
+{
+  "package": "Sri Lanka Multimodal Journey Planner \u2014 Final Architecture",
+  "version": "1.0",
+  "prepared": "2026-11-19",
+  "files": [
+    "00_EXECUTIVE_SUMMARY_AND_DECISIONS.md",
+    "01_PRODUCT_VISION_AND_USERS.md",
+    "02_TRAVELLER_PROBLEMS_AND_GAPS.md",
+    "03_FEATURES_AND_SCOPE.md",
+    "04_USER_STORIES.md",
+    "05_USER_FLOWS_AND_UI_UX.md",
+    "06_SYSTEM_ARCHITECTURE.md",
+    "07_TECH_STACK.md",
+    "08_DATA_MODEL.md",
+    "09_DATA_INGESTION_AND_REFRESH.md",
+    "10_ROUTING_ENGINE.md",
+    "11_BACKEND_API_DESIGN.md",
+    "12_AI_AND_LANGUAGE_DESIGN.md",
+    "13_MOBILE_APP_DESIGN.md",
+    "14_SECURITY_PRIVACY_ACCESSIBILITY.md",
+    "15_TESTING_DEPLOYMENT_OPERATIONS.md",
+    "16_ROADMAP_AND_ACCEPTANCE_GATES.md",
+    "17_OPEN_QUESTIONS_PRE_IMPLEMENTATION.md",
+    "README.md"
+  ],
+  "note": "Proposed baseline. Validate pilot data coverage, source rights and API availability before production implementation."
+}
