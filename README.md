@@ -2,6 +2,18 @@
 
 Pre-development foundation for a Sri Lankan multimodal public transport journey planner focused on actionable, step-by-step travel instructions.
 
+## Quickstart (backend — Phase 0.3)
+
+Prerequisites: Docker Desktop running.
+
+```powershell
+copy .env.example .env        # then adjust values if needed (never commit .env)
+docker compose --env-file .env -f infra/docker/compose.yaml up -d --build
+docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend pytest
+```
+
+Then open <http://localhost:8000/api/v1/health> (liveness), `/api/v1/ready` (readiness) and `/api/v1/docs` (OpenAPI). Full details: [backend/README.md](backend/README.md).
+
 ## Documentation layout
 
 All project documentation lives under `docs/` (consolidated per ADR-0001):
@@ -44,6 +56,7 @@ See [architecture/README.md](architecture/README.md) for the full index (`00` Ex
 - ADR-0002 — Ratified baseline technology stack
 - ADR-0003 — Redis scope in the MVP
 - ADR-0004 — Background job processing library (proposed)
+- ADR-0005 — Docker-first local development environment (pinned Python 3.12)
 
 ## How to use
 

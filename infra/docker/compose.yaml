@@ -1,0 +1,63 @@
+# Local development stack for the Sri Lanka Journey Planner (Phase 0.3).
+# Run from the repository root:
+#   docker compose --env-file .env -f infra/docker/compose.yaml up -d
+#   docker compose --env-file .env -f infra/docker/compose.yaml logs -f backend
+# The `backend` service runs the FastAPI app with hot reload on the pinned
+# python:3.12-slim image (ADR-0002 / ADR-0005).
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: sljp-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-journey_planner}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-journey_planner}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: sljp-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: sljp-backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --no-access-log
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      # Inside the compose network the services are reachable by name:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-journey_planner}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+    volumes:
+      - ../../backend:/srv
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
