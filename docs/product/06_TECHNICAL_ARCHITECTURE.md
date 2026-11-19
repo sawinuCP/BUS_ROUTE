@@ -2,8 +2,6 @@
 
 # Technical Architecture and Application Behaviour
 
-# Technical Architecture and Application Behaviour
-
 **Design target:** maintainable, auditable, data-driven multimodal routing system. This is a recommended architecture for discussion; technology choices are not locked.
 
 ## 1. Architecture overview
