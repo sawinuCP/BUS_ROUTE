@@ -1,3 +1,7 @@
+> **SUPERSEDED (in part) — see note.** This document is retained as a research-draft record. The technology choices in its §2 ("Suggested stack — evaluate, not final": Flutter-or-React-Native client, OTP/GraphHopper/Valhalla evaluation) are **no longer open options**; they were decided in the approved baseline stack. The authoritative technology decisions are: `docs/architecture/00_EXECUTIVE_SUMMARY_AND_DECISIONS.md` (decision table), `docs/architecture/07_TECH_STACK.md`, and the ADRs in `docs/adr/`. The §3 canonical domain model and the testing/AI-boundary principles in this document remain valid reference material and are consistent with the newer documents.
+
+# Technical Architecture and Application Behaviour
+
 # Technical Architecture and Application Behaviour
 
 **Design target:** maintainable, auditable, data-driven multimodal routing system. This is a recommended architecture for discussion; technology choices are not locked.
