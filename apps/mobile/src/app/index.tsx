@@ -16,8 +16,8 @@ import { searchPlaces, type SearchHit } from '@/lib/api';
  */
 
 type Selection =
-  | { kind: 'hit'; label: string; detail: string }
-  | { kind: 'coordinates'; label: string; detail: string };
+  | { kind: 'hit'; label: string; detail: string; coords?: { lat: number; lon: number } }
+  | { kind: 'coordinates'; label: string; detail: string; coords: { lat: number; lon: number } };
 
 const TYPE_LABELS: Record<SearchHit['entity_type'], string> = {
   stop: 'Bus stop',
@@ -68,6 +68,7 @@ export default function HomeScreen() {
       kind: 'coordinates',
       label: 'Manual coordinate',
       detail: `lat ${lat.toFixed(5)}, lon ${lon.toFixed(5)} (approximate)`,
+      coords: { lat, lon },
     });
   }
 
@@ -95,6 +96,21 @@ export default function HomeScreen() {
         <View style={styles.selectionCard}>
           <ThemedText type="smallBold">{selection.label}</ThemedText>
           <ThemedText type="small">{selection.detail}</ThemedText>
+          {selection.coords ? (
+            <Link
+              href={{
+                pathname: '/map',
+                params: {
+                  lat: selection.coords.lat.toString(),
+                  lon: selection.coords.lon.toString(),
+                  name: selection.label,
+                },
+              }}
+              testID="view-on-map"
+            >
+              <ThemedText type="linkPrimary">View on map</ThemedText>
+            </Link>
+          ) : null}
         </View>
       ) : null}
 
@@ -119,6 +135,7 @@ export default function HomeScreen() {
                     ? 'matched by name'
                     : `matched via ${item.matched_language} name`
                 }${item.verification_status === 'unverified' ? ' · not field-checked yet' : ''}`,
+                ...(item.coordinates ? { coords: item.coordinates } : {}),
               })
             }
             testID={`result-${item.entity_id}`}

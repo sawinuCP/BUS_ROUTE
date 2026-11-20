@@ -14,7 +14,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
     ports:
-      - "5432:5432"
+      # Host port 5433: 5432 on the host may be taken by a native PostgreSQL
+      # service (I-20); container-internal traffic keeps using 5432.
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro

@@ -20,3 +20,19 @@ export function resolveApiBaseUrl(rawUrl: string | undefined): string {
 }
 
 export const apiBaseUrl = resolveApiBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
+
+const DEFAULT_MAP_STYLE = 'https://demotiles.maplibre.org/style.json';
+
+export function resolveMapStyle(rawUrl: string | undefined): string {
+  const candidate = rawUrl?.trim();
+  return candidate ? trimTrailingSlash(candidate) : DEFAULT_MAP_STYLE;
+}
+
+/**
+ * Vector style for the MapLibre map. The default is the MapLibre demo style
+ * (development only, no account/token needed). A production basemap/tile
+ * provider is a separate owner decision (data licensing + hosting) recorded
+ * in the status report — the app never hard-codes a vendor here.
+ */
+export const mapStyle = resolveMapStyle(process.env.EXPO_PUBLIC_MAP_STYLE);
+

@@ -42,6 +42,23 @@ export interface SearchResponse {
   note: string;
 }
 
+/** One stop marker from `GET /api/v1/stops?bbox=` (map overlay). */
+export interface StopMarker {
+  entity_type: 'stop';
+  entity_id: string;
+  name: string;
+  coordinates: { lon: number; lat: number };
+  stop_type: string | null;
+  mode: string | null;
+  verification_status: string | null;
+}
+
+export interface StopsBboxResponse {
+  bbox: string;
+  count: number;
+  stops: StopMarker[];
+}
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export async function checkBackendHealth(fetchImpl: typeof fetch = fetch): Promise<HealthResponse> {
@@ -72,4 +89,23 @@ export async function searchPlaces(
     throw new Error(`search failed with status ${response.status}`);
   }
   return (await response.json()) as SearchResponse;
+}
+
+/** Fetches stop markers inside a WGS84 bbox (`south,west,north,east`). */
+export async function fetchStopsInBbox(
+  bbox: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<StopsBboxResponse> {
+  const response = await fetchImpl(
+    `${apiBaseUrl}/api/v1/stops?bbox=${encodeURIComponent(bbox)}`,
+    {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`stops fetch failed with status ${response.status}`);
+  }
+  return (await response.json()) as StopsBboxResponse;
 }

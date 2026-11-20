@@ -33,7 +33,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_v1_prefix: str = "/api/v1"
 
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/journey_planner"
+    # Host-side default points at the Docker-published port 5433 (compose maps
+    # db 5433:5432). 5432 on the host often collides with a local native
+    # PostgreSQL service (I-20). Inside Docker, compose overrides DATABASE_URL
+    # to the in-network db:5432.
+    database_url: str = (
+        "postgresql+asyncpg://postgres:change-me-local-only@localhost:5433/journey_planner"
+    )
     redis_url: str = "redis://localhost:6379/0"
 
     # Immutable raw-source archive root (dev: local filesystem; staging/production:
@@ -44,13 +50,15 @@ class Settings(BaseSettings):
     validation_reports_dir: str = "data/validation_reports"
 
     # Configurable pilot coverage boundary (Overpass bbox: south,west,north,east).
-    # Never hard-code geography in code; the pilot corridor is an owner decision.
-    pilot_bbox: str = "6.88,79.83,6.96,79.90"
+    # D-8 (2026-11-20): widened to Western Province by owner approval.
+    pilot_bbox: str = "6.60,79.75,7.30,80.25"
 
     # OSM Overpass endpoint (read-only public API; ODbL — see data source register).
     osm_overpass_endpoint: str = "https://overpass-api.de/api/interpreter"
     # Community mirror used when the primary returns transient errors.
     osm_overpass_fallback: str | None = "https://overpass.kumi.systems/api/interpreter"
+    # Overpass query execution timeout — larger bboxes need longer.
+    osm_overpass_timeout_seconds: int = 300
 
     cors_origins: list[str] = []
 

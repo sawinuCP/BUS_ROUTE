@@ -1,13 +1,19 @@
-"""Fixtures for integration tests against the dedicated test database (I-18).
+"""Fixtures for integration tests against the dedicated test database (I-18/I-21).
 
 Integration tests run against `journey_planner_test` (created + migrated
 automatically below), so test cleanup never wipes development data. Tests skip
 when the database is unreachable so unit runs stay green without infrastructure.
+
+I-21: the test-DB override is applied here at conftest-import time — BEFORE any
+test module (and therefore any app code) can call `get_settings()`. Without
+this, Alembic's env.py and the cleanup fixture resolved the settings default
+and migrated/wiped the development database instead of the test database.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -17,7 +23,14 @@ from alembic.config import Config as alembic_config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
-from app.platform.config import get_settings
+from app.platform.config import Settings, get_settings
+
+# Route every settings read in this pytest process to the dedicated test DB.
+# Must happen before any other module calls get_settings() (conftest imports
+# always run first), and before Alembic's env.py resolves its URL.
+_BASE_SETTINGS = Settings()
+_TEST_DATABASE_URL = _BASE_SETTINGS.database_url.rsplit("/", 1)[0] + "/journey_planner_test"
+os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
 
 
 @pytest.fixture(scope="session", autouse=True)

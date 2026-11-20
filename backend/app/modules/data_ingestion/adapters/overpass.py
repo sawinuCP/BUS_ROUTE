@@ -58,7 +58,7 @@ class OverpassAdapter(SourceAdapter):
         bbox: str,
         endpoint: str = "https://overpass-api.de/api/interpreter",
         fallback_endpoint: str | None = None,
-        timeout_seconds: int = 90,
+        timeout_seconds: int = 300,
         adapter_version: str = "0.1.0",
     ) -> None:
         self._bbox = bbox

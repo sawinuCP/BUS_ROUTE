@@ -122,6 +122,7 @@ async def sync_source(source_id: uuid.UUID, body: SyncRequest, session: SessionD
                 bbox=settings.pilot_bbox,
                 endpoint=settings.osm_overpass_endpoint,
                 fallback_endpoint=settings.osm_overpass_fallback,
+                timeout_seconds=settings.osm_overpass_timeout_seconds,
             )
         outcome = await service.run_sync(session, source, adapter)
     except FileNotFoundError as exc:

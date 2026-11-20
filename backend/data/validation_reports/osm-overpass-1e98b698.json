@@ -1,0 +1,71 @@
+{
+  "report_type": "data_quality_report",
+  "generated_at": "2026-11-20T09:34:01.535236+00:00",
+  "dataset_version": {
+    "id": "c9efc29e-cbef-4806-94cc-f9719be45108",
+    "label": "osm-overpass-1e98b698",
+    "status": "candidate",
+    "notes": null
+  },
+  "caveats": [
+    "All facts in this version are 'unverified' until field-checked.",
+    "OSM data does not prove operational status of any service.",
+    "direction_id is not derivable from OSM alone; boarding side is unknown.",
+    "Network feasibility only: no timetable or live availability claims."
+  ],
+  "diff_by_entity_type": {
+    "route": 21,
+    "route_pattern": 23,
+    "route_pattern_stop": 21,
+    "stop": 337
+  },
+  "coverage": {
+    "stops": {
+      "total": 437,
+      "with_coordinates": 437
+    },
+    "stop_verification_status": {
+      "unverified": 437
+    },
+    "routes": 38,
+    "route_patterns": 45,
+    "route_pattern_stops": 58,
+    "aliases_by_language": {
+      "si": 2
+    },
+    "transfer_connections": 0,
+    "places": 0
+  },
+  "checks": [
+    {
+      "check": "patterns with fewer than 2 ordered calls",
+      "count": 4,
+      "severity": "warning",
+      "note": "variants with <2 calls cannot be planned against"
+    },
+    {
+      "check": "patterns with no stop calls at all",
+      "count": 36,
+      "severity": "warning",
+      "note": "usually unresolved member references at ingestion"
+    },
+    {
+      "check": "routes without an agency attribution",
+      "count": 38,
+      "severity": "info",
+      "note": "OSM relations rarely carry operator data; field-verify"
+    },
+    {
+      "check": "stops without coordinates",
+      "count": 0,
+      "severity": "pass",
+      "note": "coordinates unknown until resolved/verified"
+    },
+    {
+      "check": "patterns without geometry (shape)",
+      "count": 45,
+      "severity": "info",
+      "note": "shapes not imported in this phase"
+    }
+  ]
+}

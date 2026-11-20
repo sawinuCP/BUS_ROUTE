@@ -79,12 +79,13 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 2 complete · next task: Phase 3 (pedestrian routing & transfer graph) — awaiting owner go-ahead**
+> **▸ CURRENT POSITION: Phase 2.1 complete (coverage widened + map prepared + infra hardened) · next: Phase 3 (owner go-ahead)**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
-> **Field kit ready:** 100-stop survey list, 22-pattern ride-check list exported; ODK form CSVs + import pipeline live (see `data/field-verification/README.md`).
-> **Phase 2 note:** map renderer (MapLibre) screen deferred pending the dev-client/device spike (owner tooling); search flow + manual-coordinate fallback shipped.
+> **D-8 (2026-11-20):** pilot bbox widened to **Western Province** (`PILOT_BBOX=6.60,79.75,7.30,80.25`) — owner approved; live ingest delivered **432 stops / 38 routes** island-of-WP coverage (vs 100 stops in central Colombo). Overpass query timeout raised to 300 s for the larger area.
+> **D-9 (2026-11-20):** MapLibre map screen **integrated in code** (`/map` screen, stop markers, "View on map" from search); runtime verification on a device **pending owner dev-client spike** (Android Studio — same tooling dependency as the Phase 0 device item).
+> **Infra hardening:** Docker DB republished on **host port 5433** (I-20: a native Windows PostgreSQL service on 5432 hijacked loopback connections); integration tests now provably target `journey_planner_test` only (I-21: the I-18 fix was incomplete — Alembic/cleanup still resolved the dev URL; dev data was wiped and **restored from the archived OSM pipeline**).
 
 | Phase / task | Status | Commit | Headline outcome | Verification result |
 |---|---|---|---|---|
@@ -184,7 +185,16 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **Live verification**: 'pettah' → 1 stop hit; '176' (types=route) → route hit (score 1.0); bbox → 54 stops; reverse-geocode → `provider: none, results: []` (honest).
 
 
+### Phase 2.1 — Coverage widening, map prep, infra hardening (2026-11-20)
+
+- **D-8 coverage widening**: `PILOT_BBOX` → Western Province `6.60,79.75,7.30,80.25`; Overpass query timeout → 300 s (`OSM_OVERPASS_TIMEOUT_SECONDS`); WP ingest `osm-overpass-1679d061` → **432 stops / 38 routes / 573 records added** (live verification: `?q=pasyala` → 2 stops at lat 7.169 (Gampaha); `?q=negombo` → 2 hits; bbox `79.95,7.05,80.05,7.20` → stops). QA report regenerated. Note: OSM route relations are bbox-selected but recursion pulls their full member geometry island-wide — WP-edge/long-distance members surface as the 37 unresolved records (honest, reported).
+- **D-9 MapLibre integration (code-complete, device verification pending)**: `@maplibre/maplibre-react-native@11.5.1` + Expo config plugin in `app.json`; new `/map` screen (`Map`/`Camera`/`Marker`, `EXPO_PUBLIC_MAP_STYLE` — MapLibre demo style for dev only, production basemap = separate owner decision); "View on map" link from a selected search hit or manual coordinates; 2 new RNTL tests with the native module mocked. Gates: typecheck 0 errors, lint 0 problems, **13/13 tests**.
+- **I-20 (infra)**: host port conflict with a native Windows PostgreSQL service → Docker DB republished **5433:5432**; settings default + `.env` updated.
+- **I-21 (test isolation, critical)**: I-18's test-DB fix was incomplete — Alembic `env.py` and the cleanup fixture still resolved the dev URL, so this session's first full pytest run **wiped the dev pilot**. Fixed by pinning `DATABASE_URL` to `journey_planner_test` at conftest-import time. Dev data restored via the ingestion pipeline (idempotent upserts, archived source unchanged). Proven: 60/60 pytest **then** dev stops still 432, `data_sources` intact.
+
+
 ### Phase 1.3+ — Owner decisions and D-3 research (2026-11-20)
+
 
 - **Decisions recorded:** D-1 keep pilot candidate unpublished; D-2 pilot corridor = **central Colombo** (default bbox ratified); D-4 (ODbL legal review), D-5 (mobile device launch), D-6 (GitHub/CI), D-7 (si/ta reviewers) — **deferred by owner** with recorded "needed by" dates.
 - **D-3 research** delivered: `docs/research/field-verification-approach.md` — compared six approaches (ODK/KoboToolbox structured surveys, StreetComplete, OpenStop, ride-along GPS audits, Field Papers, official-feed import) with retrieved web sources.
@@ -216,6 +226,8 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | I-18 | 2026-11-20 | 1.4 | Integration-test canonical-table cleanup wiped the dev pilot data (tests share the dev DB) | Pilot had to be re-ingested | Re-ingested identically (`osm-overpass-4e442b17`, 230/176/54 — adapter is deterministic). Tech-debt recorded: dedicated test database for integration tests | sync history |
 | I-18-fix | 2026-11-20 | 2 | Dedicated test database implemented: tests create + migrate `journey_planner_test` (init script + session fixture); dev data never touched by tests again | Recurring wipe risk eliminated | `tests/conftest.py` URL redirect; `tests/integration/conftest.py` session fixture (sync wrapper; AUTOCOMMIT DB creation; alembic upgrade) | pytest run: dev stops stayed intact |
 | I-19 | 2026-11-20 | 2 | Overpass public instance returned 502 (and mirror ReadTimeout) → sync turned into unhandled 500 | Live re-ingest blocked; poor API semantics | (a) `run_sync` catches fetch failures → run `failed`, previous data keeps serving, API stays 200 (plan §5.2 rule 3); (b) Overpass **mirror fallback** (`OSM_OVERPASS_FALLBACK`, kumi.systems) added to adapter | container logs; retry succeeded |
+| I-20 | 2026-11-20 | 2.1 | A native Windows PostgreSQL 15 service (auto-start) shares host port 5432 with the Docker DB → loopback connections nondeterministically hit the wrong server; host-side pytest auth failed | Host gates unreliable; would break again at every reboot | Docker `db` republished as **5433:5432**; settings default `DATABASE_URL` → `localhost:5433` (compose in-container override unchanged); `.env`/docs updated | netstat (two 5432 listeners); asyncpg auth error; pytest 60/60 after fix |
+| I-21 | 2026-11-20 | 2.1 | **I-18's fix was incomplete**: the session fixture *created* `journey_planner_test`, but Alembic's `env.py` and the cleanup fixture still resolved `get_settings().database_url` = **dev DB** → the Phase-2.1 pytest run wiped the dev pilot (0 stops) | Dev data destroyed; test isolation claim was false | conftest now sets `DATABASE_URL=…journey_planner_test` at **conftest-import time** (before any app/alembic code resolves settings) so migration + cleanup + app-under-test all target the test DB; dev data re-ingested from the pipeline (`osm-overpass-1679d061`, 610/573/37) | pytest 60/60 **and dev stops still 432 after the run** (decisive check) |
 
 ---
 
@@ -229,16 +241,19 @@ copy .env.example .env
 docker compose --env-file .env -f infra/docker/compose.yaml up -d --build
 docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend alembic upgrade head
 
-# 2. Backend gates (in-container; = CI)
+# 2. Backend gates
 docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend `
   sh -c "ruff format --check . && ruff check . && mypy && pytest"
-#   → 46 passed, 1 warning (starlette TestClient deprecation; third-party)
+#   → 60 passed, 2 warnings (starlette TestClient deprecations; third-party)
+#   Host-side equivalents (after I-20/I-21): ruff format --check . && ruff check .
+#   && mypy && pytest  → 60 passed; dev DB (journey_planner, host port 5433)
+#   retains 432 stops / 38 routes after the run (I-21 proof).
 
 # 3. Mobile gates (from apps/mobile/)
 cd apps/mobile; npm ci
 npm run lint        # → 0 problems
 npm run typecheck   # → 0 errors
-npm test            # → 7 passed
+npm test            # → 13 passed (2 new MapScreen tests; native module mocked)
 npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling)
 ```
 
@@ -250,6 +265,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: QA report `backend/data/validation_reports/osm-overpass-d4d4a724.md` generated and committed.
 - 2026-11-20: Phase 1.4 live verification — re-ingest `osm-overpass-4e442b17` succeeded (230/176/54, deterministic); coverage scorecard **17 routes, average 23.0/100**; QA queue **35 items**; field-survey exports generated (**100 stops / 22 patterns / 0 transfers**); reports committed under `backend/data/validation_reports/`.
 - 2026-11-20: Phase 2 live verification — pilot re-ingested as `osm-overpass-3cf065d7` (230/176/54, after an Overpass outage was survived via mirror fallback); `GET /places/search?q=pettah` → 1 stop; `?q=176&types=route` → 1 route; `GET /stops?bbox=79.84,6.90,79.87,6.94` → **54 stops**; reverse-geocode honestly returns `provider: none`.
+- 2026-11-20: Phase 2.1 live verification — WP ingest `osm-overpass-1679d061` (610/573/37, primary 504 → retry OK); `?q=pasyala` → 2 stops (lat 7.169, Gampaha); `?q=negombo` → 2 hits; `GET /stops?bbox=79.95,7.05,80.05,7.20` → 3 stops; QA report `backend/data/validation_reports/osm-overpass-1679d061.md`. I-21 proof: full pytest (60/60) → dev DB still 432 stops / 1 source.
 
 ---
 
@@ -273,10 +289,12 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 
 **Known technical limitations (recorded, acceptable):**
 - Rollback = pointer flip + re-materialisation runbook (no automated data reversal) — ADR-0007.
-- QA report gaps (15 patterns without calls / 54 failed records) stem from OSM member nodes without names/tags in the bbox — a **coverage-data finding**, not a bug; field verification or a supplementary source resolves them.
-- `pytest` deprecation warning originates in starlette's TestClient (third-party).
+- QA report gaps (15 patterns without calls / 37 failed records at WP scale) stem from OSM member nodes without names/tags or outside the bbox — a **coverage-data finding**, not a bug; field verification or a supplementary source resolves them.
+- `pytest` deprecation warnings originate in starlette's TestClient (third-party).
 - npm audit reports moderate transitive advisories in RN tooling; `audit fix --force` deliberately avoided.
 - Admin API is unauthenticated by design until Phase 9 (production-gated in code).
+- The Docker DB publishes host port **5433** because a native Windows PostgreSQL service occupies 5432 (I-20). If the owner disables that service, the port can return to 5432.
+- MapLibre basemap: dev-only MapLibre demo style; production basemap/tiles provider = owner decision (licensing + hosting).
 
 ---
 
@@ -285,14 +303,15 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 **Phase 1 (finish):**
 - [x] Owner decisions D-1/D-2 resolved (2026-11-20); D-3 adopted (three-tier approach)
 - [x] Phase 1.4 — coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API; field kit committed (`data/field-verification/`)
+- [x] Dedicated test database for integration tests (I-18, completed properly under I-21)
 - [ ] **Owner field walks** (2–3 days, per `data/field-verification/README.md`) — the Phase 1 exit gate's field-check item; deploy Kobo form, walk, import
-- [ ] Tech-debt: dedicated test database for integration tests (I-18)
 
 **Phase 2 — Place search, local names, map:**
 - [x] Place/alias search API (trigram; language-tagged); ambiguous-result handling (listed, never auto-selected)
 - [x] Geocoder behind provider adapter (NoGeocoder default — provider choice still open, GAP-013/D-item)
 - [x] Mobile search flow (results + disambiguation + manual-coordinate fallback)
-- [ ] MapLibre map screen — **pending dev-client/device spike** (owner tooling; recorded like the Phase 0 device item)
+- [x] Coverage widened to Western Province (D-8) — 432 stops / 38 routes live
+- [x] MapLibre `/map` screen integrated in code (D-9) — stop markers + "View on map"; **runtime verification pending owner dev-client/device spike** (D-5)
 - [ ] Destination entrances for curated pilot POIs (Phase 2.2 candidate)
 
 **Phase 3 — Pedestrian routing and transfer graph:**
@@ -319,11 +338,11 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 
 ## 11. Transport-data honesty statement (current data state)
 
-- The only ingested source is **OpenStreetMap via Overpass** (ODbL) for a small central Colombo bbox — **candidate version `osm-overpass-d4d4a724`, not published**.
+- The only ingested source is **OpenStreetMap via Overpass** (ODbL), bbox = **Western Province** (`6.60,79.75,7.30,80.25`, D-8) — **candidate version `osm-overpass-1679d061`, not published**.
 - Every imported fact carries `verification_status = 'unverified'`. No timetable, live-availability, fare, or accessibility claims exist or may be made.
-- Coverage figures (100 stops / 17 routes / 22 patterns / 37 ordered calls) describe **imported data within the bbox**, not service reality; OSM does not guarantee operational status or complete sequences.
-- Known data gaps (recorded in the committed QA report): 15 patterns with no resolvable stop calls, 3 patterns with <2 calls, no agency attributions, no shapes, no transfer connectors, no verified anything — all awaiting field verification (D-3) and/or additional sources.
+- Coverage figures (**432 stops / 38 routes / 45 patterns**) describe **imported data within the bbox**, not service reality; OSM does not guarantee operational status or complete sequences.
+- Known data gaps (recorded in the committed QA report `backend/data/validation_reports/osm-overpass-1679d061.md`): patterns with unresolvable stop calls, no agency attributions, no shapes, no transfer connectors, no verified anything — all awaiting field verification (D-3) and/or additional sources. 37 unresolved records include WP-edge members and long-distance relations whose member geometry extends island-wide.
 
 ---
 
-*End of report. Next update: at the completion of Phase 1.4.*
+*End of report. Next update: at the completion of Phase 3 (pedestrian routing & transfer graph).*
