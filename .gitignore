@@ -41,6 +41,9 @@ yarn-error.log*
 # quality reports live under backend/data/validation_reports/.
 data/raw/
 backend/data/raw/
+# Raw OSM extracts and Valhalla tile artifacts: large, licensed (ODbL) —
+# aggregate evidence only is committed (see ADR-0008 / status report §11).
+data/osm/
 # Field-survey runtime exports/imports (form definitions are committed)
 data/field-verification/exports/
 data/field-verification/imports/

@@ -62,6 +62,11 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = []
 
+    # Walking engine (ADR-0008): local Valhalla /route service. Compose
+    # overrides this to the in-network `valhalla:8002`.
+    valhalla_base_url: str = "http://localhost:8002"
+    valhalla_timeout_seconds: float = 10.0
+
     @property
     def is_local(self) -> bool:
         return self.app_env == "local"

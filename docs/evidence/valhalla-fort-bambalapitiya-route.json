@@ -1,0 +1,332 @@
+{
+  "trip": {
+    "locations": [
+      {
+        "type": "break",
+        "lat": 6.934306,
+        "lon": 79.848957,
+        "original_index": 0
+      },
+      {
+        "type": "break",
+        "lat": 6.893302,
+        "lon": 79.855588,
+        "original_index": 1
+      }
+    ],
+    "legs": [
+      {
+        "maneuvers": [
+          {
+            "type": 1,
+            "instruction": "Walk west on the walkway.",
+            "verbal_succinct_transition_instruction": "Walk west.",
+            "verbal_pre_transition_instruction": "Walk west on the walkway.",
+            "verbal_post_transition_instruction": "Continue for 90 meters.",
+            "time": 64.403,
+            "length": 0.091,
+            "cost": 64.403,
+            "begin_shape_index": 0,
+            "end_shape_index": 2,
+            "rough": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 15,
+            "instruction": "Turn left.",
+            "verbal_transition_alert_instruction": "Turn left.",
+            "verbal_succinct_transition_instruction": "Turn left. Then Turn right onto A1.",
+            "verbal_pre_transition_instruction": "Turn left. Then Turn right onto A1.",
+            "verbal_post_transition_instruction": "Continue for less than 10 meters.",
+            "time": 4.235,
+            "length": 0.006,
+            "cost": 4.235,
+            "begin_shape_index": 2,
+            "end_shape_index": 3,
+            "verbal_multi_cue": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 10,
+            "instruction": "Turn right onto A1/AH43/Olcott Mawatha.",
+            "verbal_transition_alert_instruction": "Turn right onto A1.",
+            "verbal_succinct_transition_instruction": "Turn right.",
+            "verbal_pre_transition_instruction": "Turn right onto A1, AH43.",
+            "verbal_post_transition_instruction": "Continue for 80 meters.",
+            "street_names": [
+              "A1",
+              "AH43",
+              "Olcott Mawatha"
+            ],
+            "time": 55.058,
+            "length": 0.078,
+            "cost": 60.058,
+            "begin_shape_index": 3,
+            "end_shape_index": 9,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 15,
+            "instruction": "Turn left onto the walkway.",
+            "verbal_transition_alert_instruction": "Turn left onto the walkway.",
+            "verbal_succinct_transition_instruction": "Turn left. Then Turn right onto A1.",
+            "verbal_pre_transition_instruction": "Turn left onto the walkway. Then Turn right onto A1.",
+            "verbal_post_transition_instruction": "Continue for 10 meters.",
+            "time": 7.764,
+            "length": 0.011,
+            "cost": 12.764,
+            "begin_shape_index": 9,
+            "end_shape_index": 10,
+            "verbal_multi_cue": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 10,
+            "instruction": "Turn right onto A1/AH43/Olcott Mawatha.",
+            "verbal_transition_alert_instruction": "Turn right onto A1.",
+            "verbal_succinct_transition_instruction": "Turn right.",
+            "verbal_pre_transition_instruction": "Turn right onto A1, AH43.",
+            "verbal_post_transition_instruction": "Continue for 70 meters.",
+            "street_names": [
+              "A1",
+              "AH43",
+              "Olcott Mawatha"
+            ],
+            "time": 50.117,
+            "length": 0.071,
+            "cost": 55.117,
+            "begin_shape_index": 10,
+            "end_shape_index": 19,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 16,
+            "instruction": "Bear left onto A4/Lotus Road.",
+            "verbal_transition_alert_instruction": "Bear left onto A4.",
+            "verbal_succinct_transition_instruction": "Bear left.",
+            "verbal_pre_transition_instruction": "Bear left onto A4, Lotus Road.",
+            "verbal_post_transition_instruction": "Continue for 100 meters.",
+            "street_names": [
+              "A4",
+              "Lotus Road"
+            ],
+            "time": 88.941,
+            "length": 0.126,
+            "cost": 93.941,
+            "begin_shape_index": 19,
+            "end_shape_index": 27,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 17,
+            "instruction": "Stay straight to take the ramp.",
+            "verbal_transition_alert_instruction": "Stay straight to take the ramp.",
+            "verbal_pre_transition_instruction": "Stay straight to take the ramp.",
+            "time": 35.294,
+            "length": 0.05,
+            "cost": 35.294,
+            "begin_shape_index": 27,
+            "end_shape_index": 30,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 16,
+            "instruction": "Bear left onto Lotus Road/AC15.",
+            "verbal_transition_alert_instruction": "Bear left onto Lotus Road.",
+            "verbal_succinct_transition_instruction": "Bear left.",
+            "verbal_pre_transition_instruction": "Bear left onto Lotus Road, AC15.",
+            "verbal_post_transition_instruction": "Continue for 400 meters.",
+            "street_names": [
+              "Lotus Road",
+              "AC15"
+            ],
+            "time": 291.705,
+            "length": 0.409,
+            "cost": 296.705,
+            "begin_shape_index": 30,
+            "end_shape_index": 42,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 24,
+            "instruction": "Keep left to stay on Lotus Road/AC15.",
+            "verbal_transition_alert_instruction": "Keep left to stay on Lotus Road.",
+            "verbal_pre_transition_instruction": "Keep left to stay on Lotus Road, AC15.",
+            "verbal_post_transition_instruction": "Continue for 30 meters.",
+            "street_names": [
+              "Lotus Road",
+              "AC15"
+            ],
+            "time": 22.588,
+            "length": 0.032,
+            "cost": 22.588,
+            "begin_shape_index": 42,
+            "end_shape_index": 44,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 15,
+            "instruction": "Turn left onto the walkway.",
+            "verbal_transition_alert_instruction": "Turn left onto the walkway.",
+            "verbal_succinct_transition_instruction": "Turn left.",
+            "verbal_pre_transition_instruction": "Turn left onto the walkway.",
+            "verbal_post_transition_instruction": "Continue for 100 meters.",
+            "time": 86.823,
+            "length": 0.123,
+            "cost": 91.823,
+            "begin_shape_index": 44,
+            "end_shape_index": 53,
+            "rough": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 10,
+            "instruction": "Turn right.",
+            "verbal_transition_alert_instruction": "Turn right.",
+            "verbal_succinct_transition_instruction": "Turn right. Then Turn left onto A2.",
+            "verbal_pre_transition_instruction": "Turn right. Then Turn left onto A2.",
+            "verbal_post_transition_instruction": "Continue for less than 10 meters.",
+            "time": 4.235,
+            "length": 0.006,
+            "cost": 4.235,
+            "begin_shape_index": 53,
+            "end_shape_index": 54,
+            "verbal_multi_cue": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 15,
+            "instruction": "Turn left onto A2/Galle Face Centre Road.",
+            "verbal_transition_alert_instruction": "Turn left onto A2.",
+            "verbal_succinct_transition_instruction": "Turn left.",
+            "verbal_pre_transition_instruction": "Turn left onto A2, Galle Face Centre Road.",
+            "verbal_post_transition_instruction": "Continue for 1 kilometer.",
+            "street_names": [
+              "A2",
+              "Galle Face Centre Road"
+            ],
+            "time": 812.764,
+            "length": 1.15,
+            "cost": 822.764,
+            "begin_shape_index": 54,
+            "end_shape_index": 86,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 9,
+            "instruction": "Bear right onto Galle Face Roundabout.",
+            "verbal_transition_alert_instruction": "Bear right onto Galle Face Roundabout.",
+            "verbal_succinct_transition_instruction": "Bear right. Then Turn left to stay on Galle Face Roundabout.",
+            "verbal_pre_transition_instruction": "Bear right onto Galle Face Roundabout. Then Turn left to stay on Galle Face Roundabout.",
+            "verbal_post_transition_instruction": "Continue for 10 meters.",
+            "street_names": [
+              "Galle Face Roundabout"
+            ],
+            "time": 9.176,
+            "length": 0.013,
+            "cost": 14.176,
+            "begin_shape_index": 86,
+            "end_shape_index": 90,
+            "verbal_multi_cue": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 15,
+            "instruction": "Turn left to stay on Galle Face Roundabout.",
+            "verbal_transition_alert_instruction": "Turn left to stay on Galle Face Roundabout.",
+            "verbal_succinct_transition_instruction": "Turn left. Then Keep right to take A2.",
+            "verbal_pre_transition_instruction": "Turn left to stay on Galle Face Roundabout. Then Keep right to take A2.",
+            "verbal_post_transition_instruction": "Continue for 10 meters.",
+            "street_names": [
+              "Galle Face Roundabout"
+            ],
+            "time": 7.764,
+            "length": 0.011,
+            "cost": 7.764,
+            "begin_shape_index": 90,
+            "end_shape_index": 94,
+            "verbal_multi_cue": true,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 23,
+            "instruction": "Keep right to take A2/Galle Road.",
+            "verbal_transition_alert_instruction": "Keep right to take A2.",
+            "verbal_pre_transition_instruction": "Keep right to take A2, Galle Road.",
+            "verbal_post_transition_instruction": "Continue for 3 kilometers.",
+            "street_names": [
+              "A2",
+              "Galle Road"
+            ],
+            "time": 2288.04,
+            "length": 3.241,
+            "cost": 2293.04,
+            "begin_shape_index": 94,
+            "end_shape_index": 234,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          },
+          {
+            "type": 4,
+            "instruction": "You have arrived at your destination.",
+            "verbal_transition_alert_instruction": "You will arrive at your destination.",
+            "verbal_pre_transition_instruction": "You have arrived at your destination.",
+            "time": 0.0,
+            "length": 0.0,
+            "cost": 0.0,
+            "begin_shape_index": 234,
+            "end_shape_index": 234,
+            "travel_mode": "pedestrian",
+            "travel_type": "foot"
+          }
+        ],
+        "summary": {
+          "has_time_restrictions": false,
+          "has_toll": false,
+          "has_highway": false,
+          "has_ferry": false,
+          "min_lat": 6.893301,
+          "min_lon": 79.842342,
+          "max_lat": 6.934323,
+          "max_lon": 79.855589,
+          "time": 3828.913,
+          "length": 5.418,
+          "cost": 3878.913
+        },
+        "shape": "kpffLy~qhwC{@b[zAfV~AUJn@j@lGt@nHz@vIHz@|@zI|Da@R|Av@pGx@xDt@bCx@xBz@lB|@tA~@lA|@rA`CnB`CjBlDtCn@nBpKlHvJtG~KdIdAj@rDjHjB~EbAnH`Ge@xHHxBZzInBpVfNnJtGtEnKv@dDp@lDv@h`@Vxc@j@rz@XhKHpDtBNBhCz@~DpBdBvBp@`C@`G_@dRoD~KeCZjBxK{Bjb@qJ~A]`B]fBc@tOuD`UaG`MgEnLkG|I}G`VgVtG}GjFqExFuDlGmDhI_ExMmExGkB|p@uObr@iPb_@oIrPiEjOqEz`@cNV`A^nA~TyGpgBud@pFsA~GaBpFyAfF_Aj@Tt@JpAEl@SXQ`@_@^u@Nw@dLqCfk@sLfLeCfk@aMrPuD`Di@n@OnCq@fd@kM|NoDtX{GtEwAhHiBnEgArEgAbBa@b@KzG_BzGaBhDs@dYoGrD{@dLkCpRiEnf@qKjCk@bIgBpLiCfN{CjIcBzt@iPdJqBjAY`ASp@Q~EgAzD{@pEcA|JiCl[oH~LgCpKsBfDw@tFsAxG}AdP{FrXkGtIoBxCo@dASrKcCvFiAxEeAtCm@pCo@|MuCn@QrM}ChImB`Du@lEeA`U_FhH_BvEcAp@OlJwBbUaF|G{AzSwEvFoAhNiCfHeC~O{DtCs@|Aa@dMoC|HyBxA_@jHgBhIqBfDy@zIcC`Cg@pJ_CjRoEjNeDdVyFdLmCpP}DrA[dDw@jBe@pHgBjP{DzA]xEeA~L}C`K{BhXeGfSwD`McC~EkAfM_DvSyE|FsA`Dw@xIgBfGiAvCo@`MiChCi@dGoA~LqCtQaEfFiA~A]pd@}JjFkAxSsEx^cIvJwB`Ds@tHaB`X_G|MaDhEaAtLqCfE}@`P}DlK}BhE{@lD_AtIiBr\\mIzFqAda@sI~EeA|FaBzVoG??"
+      }
+    ],
+    "summary": {
+      "has_time_restrictions": false,
+      "has_toll": false,
+      "has_highway": false,
+      "has_ferry": false,
+      "min_lat": 6.893301,
+      "min_lon": 79.842342,
+      "max_lat": 6.934323,
+      "max_lon": 79.855589,
+      "time": 3828.913,
+      "length": 5.418,
+      "cost": 3878.913
+    },
+    "status_message": "Found route between points",
+    "status": 0,
+    "units": "kilometers",
+    "language": "en-US"
+  },
+  "id": "poc-fort-bambalapitiya"
+}

@@ -1,9 +1,9 @@
 # Development Status Report — Sri Lanka Journey Planner
 
 **Report ID:** `docs/status/development-status-report.md`
-**Last updated:** 2026-11-20 (after Phase 1.3)
+**Last updated:** 2026-11-20 (Phase 3 work item 1: Valhalla PoC + ADR-0008 ratified)
 **Maintained by:** coding agent + product owner
-**Companion documents:** `docs/product/11_IMPLEMENTATION_PLAN.md` (control document), `docs/audits/phase-0-repository-audit.md`, `docs/adr/ADR-0001…0007`, `data/source-rights-register.md`
+**Companion documents:** `docs/product/11_IMPLEMENTATION_PLAN.md` (control document), `docs/audits/phase-0-repository-audit.md`, `docs/adr/ADR-0001…0008`, `data/source-rights-register.md`
 
 ---
 
@@ -33,7 +33,7 @@ This is the **single, continuously-maintained engineering status report** for th
 
 ## 3. Baseline stack and decision records
 
-**Stack (ADR-0002, ratified):** React Native + TypeScript + Expo (Expo Router, TanStack Query + Zustand, SQLite, MapLibre React Native) · Python 3.12+ (Docker-pinned, ADR-0005) / FastAPI / Pydantic / SQLAlchemy 2.x / Alembic · PostgreSQL 16 + PostGIS 3.4 · Redis (scoped, ADR-0003) · Dramatiq (ADR-0004, accepted) · deterministic multimodal transit graph · Valhalla walking adapter pending prototype · REST + OpenAPI · modular monolith · pytest, Ruff + mypy, Jest + RNTL, Maestro. Prohibited in MVP: Kubernetes, Kafka, vector databases, microservices.
+**Stack (ADR-0002, ratified):** React Native + TypeScript + Expo (Expo Router, TanStack Query + Zustand, SQLite, MapLibre React Native) · Python 3.12+ (Docker-pinned, ADR-0005) / FastAPI / Pydantic / SQLAlchemy 2.x / Alembic · PostgreSQL 16 + PostGIS 3.4 · Redis (scoped, ADR-0003) · Dramatiq (ADR-0004, accepted) · deterministic multimodal transit graph · **Valhalla 3.5.1 walking engine (ADR-0008, ratified 2026-11-20)** · REST + OpenAPI · modular monolith · pytest, Ruff + mypy, Jest + RNTL, Maestro. Prohibited in MVP: Kubernetes, Kafka, vector databases, microservices.
 
 **ADR index:**
 
@@ -46,6 +46,7 @@ This is the **single, continuously-maintained engineering status report** for th
 | 0005 | Docker-first local development (pinned `python:3.12-slim`) | Accepted |
 | 0006 | Canonical schema, dataset-versioning strategy, PostGIS conventions | Accepted |
 | 0007 | Ingestion framework: adapters, archive, idempotency, publish/rollback | Accepted |
+| 0008 | Walking engine: Valhalla 3.5.1 pinned (GraphHopper PoC skipped; triggers recorded) | Accepted (owner, 2026-11-20) |
 
 **Data governance:** source-rights register at `data/source-rights-register.md` — OSM/Overpass (ODbL 1.0) registered; NSDI/NTC/GTFS/SL-Railways remain **unknown** and must not be ingested until registered.
 
@@ -79,12 +80,13 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 1 field-kit refresh complete (WP-scale walk plan) · next: owner field walks → Phase 3 (owner go-ahead)**
+> **▸ CURRENT POSITION: Phase 3 in progress — work item 1 done (Valhalla PoC + walking adapter, ADR-0008 ratified) · next: shapes import + explicit transfer-path work (Phase 3 completion) · owner field walks pending (Phase 1 exit gate)**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
 > **D-8 (2026-11-20):** pilot bbox widened to **Western Province** (`PILOT_BBOX=6.60,79.75,7.30,80.25`) — owner approved; live ingest delivered **432 stops / 38 routes** island-of-WP coverage (vs 100 stops in central Colombo). Overpass query timeout raised to 300 s for the larger area.
 > **D-9 (2026-11-20):** MapLibre map screen **integrated in code** (`/map` screen, stop markers, "View on map" from search); runtime verification on a device **pending owner dev-client spike** (Android Studio — same tooling dependency as the Phase 0 device item).
+> **D-10 (2026-11-20):** walking engine **ADR-0008 ratified — Valhalla 3.5.1 pinned**; GraphHopper PoC deliberately skipped (re-evaluation triggers recorded in the ADR).
 > **Infra hardening:** Docker DB republished on **host port 5433** (I-20: a native Windows PostgreSQL service on 5432 hijacked loopback connections); integration tests now provably target `journey_planner_test` only (I-21: the I-18 fix was incomplete — Alembic/cleanup still resolved the dev URL; dev data was wiped and **restored from the archived OSM pipeline**).
 
 | Phase / task | Status | Commit | Headline outcome | Verification result |
@@ -99,10 +101,10 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 1.3 First adapter + QA report | ✅ Done | `3f36d01` | OSM/Overpass adapter (ODbL registered); variant grouping; ordered calls; QA reports; rights register | **46/46 tests**; **live ingest: 230 records → 176 added / 54 failed**; QA report committed |
 | 1.4 Coverage scorecard + field-verification workflow | ✅ Done | `5d31006` | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
 | 2 Place search + local names + map | ✅ Done* | (this phase) | Trigram search over aliases (en/si/ta) + canonical names; `GET /places/search`, `GET /stops?bbox=`, reverse-geocode adapter (none configured — honest); mobile search UI + manual-coordinate fallback; migration `0005` | **60/60 backend** · **11/11 mobile** · live: 'pettah' → stop hit, '176' → route hit, bbox → 54 stops; *MapLibre screen pending device spike* |
-| **3 — Pedestrian routing & transfer graph** | ⬜ Next | — | Valhalla PoC; walking adapter; shapes import | — |
-| 2 … 10 | ⬜ Not started | — | See §4 | — |
+| **3 — Pedestrian routing & transfer graph** | 🔄 In progress | (this phase) | Work item 1: Valhalla PoC on full-SL OSM extract (126 MB tiles, ~9 min build, 52–260 ms warm latency) + walking adapter (`/api/v1/walking/route`) + **ADR-0008 ratified** | **66/66 backend** (6 new adapter tests); live: Fort→Bambalapitiya 5,418 m / 16 steps via adapter; items 2–4 remain (shapes, transfer legs) |
+| 4 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **60 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend).
+**Current quality gate totals:** backend `pytest` **66 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
 
 ---
 
@@ -200,6 +202,15 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **README rewritten as an owner walk plan** (`data/field-verification/README.md`): exact KoboToolbox account → upload → deploy → ODK Collect device steps; 3-day plan (Day 1: Colombo city core, 52 tier-A stops; Day 2: north/south-suburb remainder; Day 3: ride-along); **ride-along candidates identified from the data**: route **101** Moratuwa→Fort (23 resolved calls), route **154** Kiribathgoda→Angulana (20), then 141/138; import round-trip unchanged (`import_field_verifications.py`, dry-run first).
 - Exports regenerated against the WP dataset (432 stops / 45 patterns / 0 transfers). Nothing about the verification flow changed: submissions → `verification_records` → review → candidate version; nothing auto-publishes.
 
+### Phase 3 — work item 1: Valhalla PoC and walking adapter (2026-11-20)
+
+- **Tiles built from the Geofabrik Sri Lanka snapshot** (`data/osm/sri-lanka-261119.osm.pbf`, 138 MB; the `/latest` URL was stuck in a CDN redirect loop, so a dated snapshot was used — ODbL provenance recorded in the source register): `valhalla_build_tiles` → `valhalla_build_extract`, **~9 min, exit 0**, extract `data/osm/valhalla/tiles.tar` **125.9 MB / 141 tiles**. A WP clip was made with osmium (`wp-261119.osm.pbf`) but proved unnecessary — the whole country builds fast, which also serves Phase 10 expansion later.
+- **PoC route tests between real pilot stops** (`backend/scripts/valhalla_poc_routes.py`): Fort Bus Stop → Bambalapitiya Junction **5.42 km / 63.8 min / 16 maneuvers** (correct corridor: Olcott Mawatha → Lotus Road → Galle Face → Galle Road); Fort → Pasyala 42.55 km; Negombo → Pasyala 30.53 km (cross-district coverage); self-route 0 km clean. Warm latency **52–260 ms**. Evidence: `docs/evidence/valhalla-poc-2026-11-20.md` + committed sample response JSON.
+- **Walking adapter implemented** (`backend/app/modules/pedestrian/`): vendor-agnostic `WalkingRouter` contract → `ValhallaWalkingRouter` (httpx, configurable base URL/timeout), `WalkPlan`/`WalkStep` in metres/seconds; failures return `None` — **no-path honesty, nothing estimated**. Endpoint `GET /api/v1/walking/route` reports `ok` / `no_path_found` / `walking_router_unavailable`. **6 new unit tests** (canned-response parsing via httpx MockTransport, HTTP/connection-error honesty, endpoint states) — **backend 66/66**.
+- **ADR-0008 ratified by owner** (D-10): Valhalla **3.5.1 pinned** as the MVP walking engine; GraphHopper PoC deliberately skipped; re-evaluation triggers recorded (field-walk quality findings, footprint, engine drift).
+- **Compose**: `valhalla` service added (pinned image, port 8002, tile data under gitignored `data/osm`); backend gets `VALHALLA_BASE_URL=http://valhalla:8002`. Reproducible build script: `backend/scripts/build_valhalla_tiles.py`.
+
+
 
 
 ### Phase 1.3+ — Owner decisions and D-3 research (2026-11-20)
@@ -237,6 +248,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | I-19 | 2026-11-20 | 2 | Overpass public instance returned 502 (and mirror ReadTimeout) → sync turned into unhandled 500 | Live re-ingest blocked; poor API semantics | (a) `run_sync` catches fetch failures → run `failed`, previous data keeps serving, API stays 200 (plan §5.2 rule 3); (b) Overpass **mirror fallback** (`OSM_OVERPASS_FALLBACK`, kumi.systems) added to adapter | container logs; retry succeeded |
 | I-20 | 2026-11-20 | 2.1 | A native Windows PostgreSQL 15 service (auto-start) shares host port 5432 with the Docker DB → loopback connections nondeterministically hit the wrong server; host-side pytest auth failed | Host gates unreliable; would break again at every reboot | Docker `db` republished as **5433:5432**; settings default `DATABASE_URL` → `localhost:5433` (compose in-container override unchanged); `.env`/docs updated | netstat (two 5432 listeners); asyncpg auth error; pytest 60/60 after fix |
 | I-21 | 2026-11-20 | 2.1 | **I-18's fix was incomplete**: the session fixture *created* `journey_planner_test`, but Alembic's `env.py` and the cleanup fixture still resolved `get_settings().database_url` = **dev DB** → the Phase-2.1 pytest run wiped the dev pilot (0 stops) | Dev data destroyed; test isolation claim was false | conftest now sets `DATABASE_URL=…journey_planner_test` at **conftest-import time** (before any app/alembic code resolves settings) so migration + cleanup + app-under-test all target the test DB; dev data re-ingested from the pipeline (`osm-overpass-1679d061`, 610/573/37) | pytest 60/60 **and dev stops still 432 after the run** (decisive check) |
+| I-22 | 2026-11-20 | 3 | Valhalla Docker image `latest` (3.6.x) crashed during the walking-engine PoC: worker threads threw C++ exceptions (`terminate called recursively`), the service segfaulted (exit 139) on route requests, and the failed engine coincided with the local Docker engine returning API 500s (Docker Desktop restart needed) | PoC blocked; dev stack briefly down | Engine **pinned to `3.5.1`** (compose + build script); config regenerated with the *same* version's `valhalla_build_config` (a 3.6.x-generated config is missing keys 3.5.1 expects, e.g. `service_limits.tile.max_matrix_distance`); PowerShell `>` redirection writes UTF-16 — script writes config bytes directly (UTF-8, cf. I-17) | `valhalla_build_tiles`/`build_extract` exit 0; `/status` 200; 4/4 PoC routes; Docker Desktop restarted; core stack (db/redis/backend) auto-recovered healthy |
 
 ---
 
@@ -253,10 +265,18 @@ docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend ale
 # 2. Backend gates
 docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend `
   sh -c "ruff format --check . && ruff check . && mypy && pytest"
-#   → 60 passed, 2 warnings (starlette TestClient deprecations; third-party)
+#   → 66 passed, 2 warnings (starlette TestClient deprecations; third-party)
 #   Host-side equivalents (after I-20/I-21): ruff format --check . && ruff check .
-#   && mypy && pytest  → 60 passed; dev DB (journey_planner, host port 5433)
+#   && mypy && pytest  → 66 passed; dev DB (journey_planner, host port 5433)
 #   retains 432 stops / 38 routes after the run (I-21 proof).
+
+# 2b. Walking engine (Phase 3, ADR-0008)
+python backend/scripts/build_valhalla_tiles.py
+#   → config + tiles + tiles.tar (~126 MB) built in ~9 min (needs the pbf in data/osm)
+docker compose --env-file .env -f infra/docker/compose.yaml up -d valhalla
+curl http://localhost:8002/status                          # → {"version":"3.5.1", ...}
+curl "http://localhost:8000/api/v1/walking/route?lon_from=79.8489576&lat_from=6.9343064&lon_to=79.8555889&lat_to=6.893302"
+#   → {"status":"ok","distance_m":5418.0,"duration_s":3828.9,"steps":[16 steps]}
 
 # 3. Mobile gates (from apps/mobile/)
 cd apps/mobile; npm ci
@@ -276,6 +296,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: Phase 2 live verification — pilot re-ingested as `osm-overpass-3cf065d7` (230/176/54, after an Overpass outage was survived via mirror fallback); `GET /places/search?q=pettah` → 1 stop; `?q=176&types=route` → 1 route; `GET /stops?bbox=79.84,6.90,79.87,6.94` → **54 stops**; reverse-geocode honestly returns `provider: none`.
 - 2026-11-20: Phase 2.1 live verification — WP ingest `osm-overpass-1679d061` (610/573/37, primary 504 → retry OK); `?q=pasyala` → 2 stops (lat 7.169, Gampaha); `?q=negombo` → 2 hits; `GET /stops?bbox=79.95,7.05,80.05,7.20` → 3 stops; QA report `backend/data/validation_reports/osm-overpass-1679d061.md`. I-21 proof: full pytest (60/60) → dev DB still 432 stops / 1 source.
 - 2026-11-20: Field-kit refresh — exports regenerated for WP (`data/field-verification/exports/`: 432 stops → 57 tier-A / 375 tier-B; 45 patterns; 0 transfers); XLSForm built (`forms/stop_verification.xlsx`, openpyxl read-back verified: survey 17 rows, choices 12 rows); backend gates 60/60, dev DB intact after run.
+- 2026-11-20: Phase 3 work item 1 — Valhalla tiles built from the SL snapshot (~9 min, exit 0; 125.9 MB extract); 4/4 PoC routes between real pilot stops succeeded (Fort→Bambalapitiya 5.42 km/16 maneuvers; warm latency 52–260 ms); `GET /api/v1/walking/route` live through the backend adapter (status ok, 5,418 m, 16 steps); backend gates **66/66**, mypy/ruff/format clean; evidence in `docs/evidence/valhalla-poc-2026-11-20.md` (+ committed sample JSON); ADR-0008 ratified (D-10).
 
 ---
 
@@ -292,6 +313,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 | D-5 | Mobile device launch | **Deferred** — owner tooling, before Phase 2 UX work |
 | D-6 | GitHub remote + CI | **Deferred** — low effort when owner is ready |
 | D-7 | Native si/ta reviewers | **Deferred** — needed by Phase 5 |
+| D-10 | Walking engine (ADR-0008) | **ADOPTED (2026-11-20): Valhalla 3.5.1 pinned**; GraphHopper PoC skipped per owner ratification; re-evaluation triggers recorded in the ADR |
 
 **Still open within resolved items:**
 - D-3 staffing: who performs the field walks (the recommended approach works for a single owner with a smartphone).
@@ -327,8 +349,8 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [ ] Destination entrances for curated pilot POIs (Phase 2.2 candidate)
 
 **Phase 3 — Pedestrian routing and transfer graph:**
-- [ ] Valhalla proof of concept on Sri Lankan OSM pedestrian data (vs GraphHopper) → ADR
-- [ ] Walking-router adapter (snapping, bounded fallback, no-path honesty)
+- [x] Valhalla proof of concept on Sri Lankan OSM pedestrian data → **ADR-0008 ratified** (D-10; GraphHopper comparison deliberately skipped, triggers recorded)
+- [x] Walking-router adapter (vendor-agnostic contract, no-path honesty, bounded failure) + `GET /api/v1/walking/route` live-verified
 - [ ] Access/egress/transfer walks as explicit legs; verified transfer connector overrides
 - [ ] Route shapes import from OSM ways (deferred from 1.3)
 
@@ -357,4 +379,4 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 
 ---
 
-*End of report. Next update: at the completion of Phase 3 (pedestrian routing & transfer graph).*
+*End of report. Next update: Phase 3 completion (shapes import + explicit transfer-path work).*
