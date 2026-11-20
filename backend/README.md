@@ -13,14 +13,30 @@ backend/
 ├── app/
 │   ├── main.py               # app factory + entrypoint
 │   ├── api/routes/health.py  # /api/v1/health (liveness), /api/v1/ready (readiness)
-│   ├── platform/             # config, structured logging, error envelope, db, redis
-│   └── modules/              # one package per canonical module (placeholders in Phase 0.3)
-├── alembic/                  # migrations (env.py reads DATABASE_URL from settings)
-├── tests/                    # pytest unit tests
+│   ├── platform/             # config, structured logging, error envelope, db (Base), model registry
+│   └── modules/              # canonical boundaries; models.py holds that module's tables
+│       ├── data_ingestion/   # provenance, snapshots, sync runs, dataset versioning
+│       ├── transport/        # agencies, routes, patterns, stops, access points, shapes, transfers, fares
+│       ├── places/           # localities, places, access points, entity aliases
+│       └── data_quality/     # verification records, change audit
+├── alembic/                  # migrations (env.py loads model metadata; DATABASE_URL from settings)
+├── tests/                    # unit/ + integration/ (live PostGIS via DATABASE_URL)
 ├── Dockerfile                # python:3.12-slim (Python version is pinned here — ADR-0002/0005)
 ├── requirements.txt          # pinned runtime deps
 └── requirements-dev.txt      # pinned dev/test deps
 ```
+
+## Canonical schema (Phase 1.1)
+
+`alembic upgrade head` creates 22 canonical tables (ADR-0006): provenance and
+versioning (`data_sources`, `source_snapshots`, `source_records`, `sync_runs`,
+`dataset_versions`, `dataset_version_entities`, `active_dataset`), the
+transport network (`transport_agencies`, `transport_routes`, `route_patterns`,
+`stops`, `stop_access_points`, `route_pattern_stops`, `route_shapes`,
+`transfer_connections`, `fare_rules`), places/aliases (`localities`, `places`,
+`place_access_points`, `entity_aliases`), and data quality
+(`verification_records`, `data_change_audit`). Core invariant: ordered stop
+calls are `UNIQUE (pattern_id, sequence)`.
 
 ## Development (Docker-first — recommended)
 

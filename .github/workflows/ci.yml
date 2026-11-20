@@ -18,16 +18,17 @@ jobs:
       - name: Build backend image (pinned python:3.12-slim, ADR-0005)
         run: docker compose --env-file .env -f infra/docker/compose.yaml build backend
 
+      # `compose run` starts the db dependency automatically (ephemeral in CI).
+      # Up → down → up proves reversibility and leaves the schema migrated for tests.
+      - name: Migrations (baseline up, down, up)
+        run: >
+          docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend
+          sh -c "alembic upgrade head && alembic downgrade base && alembic upgrade head"
+
       - name: Format check, lint, type-check and tests
         run: >
           docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend
           sh -c "ruff format --check . && ruff check . && mypy && pytest"
-
-      # `compose run` starts the db dependency automatically (ephemeral in CI).
-      - name: Migration tooling wiring (baseline up, then down)
-        run: >
-          docker compose --env-file .env -f infra/docker/compose.yaml run --rm backend
-          sh -c "alembic upgrade head && alembic downgrade base"
 
   mobile:
     name: Mobile (lint, types, tests)

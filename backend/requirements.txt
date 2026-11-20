@@ -1,4 +1,4 @@
-# Runtime dependencies (Phase 0.3 backend skeleton).
+# Runtime dependencies (Phase 0.3 backend skeleton + Phase 1.1 canonical schema).
 # Pinned per ADR-0002 ("pin compatible versions"); upgrade deliberately, with tests.
 fastapi==0.115.12
 uvicorn[standard]==0.34.0
@@ -8,3 +8,5 @@ SQLAlchemy==2.0.37
 asyncpg==0.30.0
 alembic==1.14.1
 redis==5.2.1
+geoalchemy2==0.17.1
+shapely==2.0.7

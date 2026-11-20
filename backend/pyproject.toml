@@ -15,6 +15,8 @@ known-first-party = ["app"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["error::DeprecationWarning:app.*"]
 
 [tool.mypy]

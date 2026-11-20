@@ -1,8 +1,8 @@
 """Alembic environment (async template).
 
 Reads the database URL from application settings — never from this file — so
-credentials remain in environment configuration. Target metadata will be
-registered from canonical models in Phase 1.
+credentials remain in environment configuration. Target metadata is assembled
+from the canonical module models (ADR-0001 module ownership).
 """
 
 from __future__ import annotations
@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
+import geoalchemy2  # noqa: F401  (registers PostGIS types with SQLAlchemy)
 from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.platform.config import get_settings
+from app.platform.model_registry import Base, import_all_models
 
 config = context.config
 
@@ -24,8 +26,9 @@ if config.config_file_name is not None:
 # Inject the configured database URL (asyncpg driver).
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
-# Phase 1 will import canonical model metadata here:
-target_metadata = None
+# Register every canonical model, then expose its metadata for autogenerate.
+import_all_models()
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
