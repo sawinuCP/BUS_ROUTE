@@ -80,6 +80,8 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 ## 5. Status dashboard (current position)
 
 > **▸ CURRENT POSITION: Phase 1.3 complete · next task: Phase 1.4 (pilot coverage audit + field-verification workflow)**
+>
+> **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); field-verification approach researched → **three-tier ODK-centred approach recommended** (`docs/research/field-verification-approach.md`) — awaiting owner's go-ahead + staffing sub-choice (D-3). D-4–D-7 deferred by owner.
 
 | Phase / task | Status | Commit | Headline outcome | Verification result |
 |---|---|---|---|---|
@@ -156,6 +158,14 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ---
 
+### Phase 1.3+ — Owner decisions and D-3 research (2026-11-20)
+
+- **Decisions recorded:** D-1 keep pilot candidate unpublished; D-2 pilot corridor = **central Colombo** (default bbox ratified); D-4 (ODbL legal review), D-5 (mobile device launch), D-6 (GitHub/CI), D-7 (si/ta reviewers) — **deferred by owner** with recorded "needed by" dates.
+- **D-3 research** delivered: `docs/research/field-verification-approach.md` — compared six approaches (ODK/KoboToolbox structured surveys, StreetComplete, OpenStop, ride-along GPS audits, Field Papers, official-feed import) with retrieved web sources.
+- **Recommendation adopted for implementation planning:** three-tier approach — **Tier 1** ODK/KoboToolbox offline forms pre-loaded with *our* stop/transfer lists (GPS + photo evidence → `verification_records` → moderation → candidate version; nothing auto-publishes); **Tier 2** OSM-native apps (OpenStop, StreetComplete) to fix upstream OSM during the same walks; **Tier 3** ride-along GPS audits to validate `route_pattern_stops` order/variants. Sub-choices open: KoboToolbox hosting vs self-hosted ODK; who does the field walks (works for a single owner with a smartphone).
+
+---
+
 ## 7. Issues and resolutions log (append-only)
 
 | # | Date | Phase | Issue | Impact | Fix | Evidence |
@@ -214,17 +224,21 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 
 ## 9. Open questions and pending decisions
 
-**Owner decisions pending (block or shape upcoming work):**
+**Resolved (owner, 2026-11-20):**
 
-| # | Decision | Why it matters | Needed by |
-|---|---|---|---|
-| D-1 | **Publish the pilot candidate** `osm-overpass-d4d4a724`? | Publish/rollback flow is ready; recommendation: keep candidate until field verification (all facts `unverified`) | Phase 1.4 |
-| D-2 | **Ratify the pilot corridor** (currently a configurable default: central Colombo bbox) | Coverage scorecard + routing fixtures depend on the declared area | Phase 1.4 |
-| D-3 | **Field-verification owner** (who checks stop sides, route variants, transfer paths on the ground) | Phase 1 exit gate requires critical pilot items field-checked | Phase 1.4 |
-| D-4 | **ODbL legal review** (attribution placement, share-alike on derived DB) | Required before any public publishing of OSM-derived data | Before public release |
-| D-5 | **Mobile device tooling** (Android Studio/Xcode) + a device-path launch | Final Phase 0 exit criterion still open | Before Phase 2 UX work |
-| D-6 | **GitHub remote + first CI run** | CI defined but never executed on a runner | Soon (low effort) |
-| D-7 | Native-language reviewers (si/ta) for instructions | Phase 5 localization gate | Before Phase 5 |
+| # | Decision | Resolution |
+|---|---|---|
+| D-1 | Publish pilot candidate? | **Keep as candidate** — no publish until field verification (facts remain `unverified`) |
+| D-2 | Pilot corridor | **Central Colombo** (default bbox `PILOT_BBOX=6.88,79.83,6.96,79.90` ratified; configurable, never hard-coded) |
+| D-3 | Field-verification approach | **Researched; three-tier ODK-centred approach recommended** — see `docs/research/field-verification-approach.md`; owner go-ahead + staffing sub-choice still awaited |
+| D-4 | ODbL legal review | **Deferred** — before any public release |
+| D-5 | Mobile device launch | **Deferred** — owner tooling, before Phase 2 UX work |
+| D-6 | GitHub remote + CI | **Deferred** — low effort when owner is ready |
+| D-7 | Native si/ta reviewers | **Deferred** — needed by Phase 5 |
+
+**Still open within resolved items:**
+- D-3 staffing: who performs the field walks (the recommended approach works for a single owner with a smartphone).
+- D-3 tooling sub-choice: KoboToolbox free hosting (fast start) vs self-hosted ODK (we have Docker).
 
 **Known technical limitations (recorded, acceptable):**
 - Rollback = pointer flip + re-materialisation runbook (no automated data reversal) — ADR-0007.
@@ -238,8 +252,8 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 ## 10. Remaining path to completion (living checklist)
 
 **Phase 1 (finish):**
-- [ ] Phase 1.4 — coverage scorecard for the pilot bbox; field-verification checklist/workflow; QA queue; rollback demonstration (owner: D-2, D-3)
-- [ ] Owner decisions D-1 (publish candidate?), D-6 (CI remote)
+- [x] Owner decisions D-1/D-2 resolved (2026-11-20); D-3 approach researched and recommended
+- [ ] Phase 1.4 — coverage scorecard for the ratified central-Colombo pilot; ODK/KoboToolbox verification forms + import script (`import_field_verifications.py`); field checklist; QA queue; rollback demonstration — pending owner go-ahead on the Tier-1 tooling choice
 
 **Phase 2 — Place search, local names, map:**
 - [ ] Place/alias search API (PostgreSQL full-text + trigram; language-tagged); ambiguous-result handling
