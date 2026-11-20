@@ -1,0 +1,12 @@
+list_name,name,label::English,label::Sinhala,label::Tamil
+verify_result,verified,Stop exists as mapped — verified,සත්‍ය යැයි තහවුරු කළා,உண்மை என உறுதிப்படுத்தப்பட்டது
+verify_result,corrected,Exists but needs corrections,නිවැරදි කිරීම් අවශ්‍යයි,திருத்தம் தேவை
+verify_result,not_found,Not found at the mapped location,හමු නොවිය,கிடைக்கவில்லை
+verify_result,uncertain,Could not confirm today,අද තහවුරු කළ නොහැක,இன்று உறுதிப்படுத்த முடியவில்லை
+stop_type_observed,roadside,Roadside stop,මාර්ගය අසල,சாலையோரம்
+stop_type_observed,bus_stand,Bay inside a bus stand,බස් ස්ටෑන්ඩය තුළ,பேருந்து நிழலும்
+stop_type_observed,terminal,Bus terminal (large station),බස් මධ්‍යස්ථානය,பேருந்து முனையம்
+stop_type_observed,bay,Numbered bay inside a stand,අංකිත බේ එකක්,எண்ணிட்ட பே
+stop_type_observed,platform,Railway platform,දුම්රිය වේදිකාව,ரயில் மேடை
+stop_type_observed,other,Other,වෙනත්,மற்றவை
+stop_type_observed,unknown,Unknown,නොදන්නා,தெரியவில்லை

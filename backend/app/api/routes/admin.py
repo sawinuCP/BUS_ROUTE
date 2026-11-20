@@ -25,6 +25,8 @@ from app.modules.data_ingestion.service import (
     IngestionService,
     SourceRegistry,
 )
+from app.modules.data_quality.queue import QAQueueService
+from app.modules.data_quality.scorecard import CoverageScorecardService
 from app.platform.config import get_settings
 from app.platform.db import get_session
 
@@ -175,3 +177,127 @@ async def write_quality_report(version_id: uuid.UUID, session: SessionDep) -> An
     paths = await _reports.write(session, version_id, get_settings().validation_reports_dir)
     await session.commit()
     return paths
+
+
+# ---- Phase 1.4: coverage scorecard, QA queue, verifications ---------------
+
+
+@router.get("/coverage-scorecard")
+async def coverage_scorecard(session: SessionDep) -> Any:
+    return await CoverageScorecardService().build(session)
+
+
+@router.get("/qa-queue")
+async def qa_queue(session: SessionDep) -> Any:
+    return await QAQueueService().items(session)
+
+
+class VerificationCreate(BaseModel):
+    entity_type: Literal[
+        "agency",
+        "route",
+        "route_pattern",
+        "route_pattern_stop",
+        "stop",
+        "stop_access_point",
+        "route_shape",
+        "transfer_connection",
+        "place",
+        "place_access_point",
+        "locality",
+        "entity_alias",
+        "fare_rule",
+    ]
+    entity_id: uuid.UUID
+    method: Literal["field_check", "official_source", "source_crosscheck", "report_review", "other"]
+    reviewer: str | None = None
+    result: Literal["verified", "rejected", "uncertain"]
+    evidence: str | None = None
+    notes: str | None = None
+    verified_at: datetime | None = None  # defaults to now (UTC)
+
+
+@router.post("/verifications", status_code=status.HTTP_201_CREATED)
+async def create_verification(body: VerificationCreate, session: SessionDep) -> Any:
+    from datetime import UTC
+
+    from sqlalchemy import text as _text
+
+    from app.modules.data_quality.models import VerificationRecord
+
+    # The entity must actually exist — no verifications of phantom entities.
+    table = {
+        "agency": "transport_agencies",
+        "route": "transport_routes",
+        "route_pattern": "route_patterns",
+        "route_pattern_stop": "route_pattern_stops",
+        "stop": "stops",
+        "stop_access_point": "stop_access_points",
+        "route_shape": "route_shapes",
+        "transfer_connection": "transfer_connections",
+        "place": "places",
+        "place_access_point": "place_access_points",
+        "locality": "localities",
+        "entity_alias": "entity_aliases",
+        "fare_rule": "fare_rules",
+    }[body.entity_type]
+    exists = await session.execute(
+        _text(f"SELECT 1 FROM {table} WHERE id = :id"), {"id": body.entity_id}
+    )
+    if exists.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail=f"{body.entity_type} not found")
+
+    record = VerificationRecord(
+        entity_type=body.entity_type,
+        entity_id=body.entity_id,
+        method=body.method,
+        reviewer=body.reviewer,
+        verified_at=body.verified_at or datetime.now(UTC),
+        result=body.result,
+        evidence=body.evidence,
+        notes=body.notes,
+    )
+    session.add(record)
+    await session.commit()
+    await session.refresh(record)
+    return {
+        "id": str(record.id),
+        "entity_type": record.entity_type,
+        "entity_id": str(record.entity_id),
+        "method": record.method,
+        "result": record.result,
+        "verified_at": record.verified_at.isoformat(),
+        "reviewer": record.reviewer,
+    }
+
+
+@router.get("/verifications")
+async def list_verifications(
+    session: SessionDep,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+) -> Any:
+    from sqlalchemy import select
+
+    from app.modules.data_quality.models import VerificationRecord
+
+    query = select(VerificationRecord).order_by(VerificationRecord.verified_at.desc())
+    if entity_type:
+        query = query.where(VerificationRecord.entity_type == entity_type)
+    if entity_id:
+        query = query.where(VerificationRecord.entity_id == entity_id)
+    records = (await session.execute(query.limit(200))).scalars()
+    return [
+        {
+            "id": str(record.id),
+            "entity_type": record.entity_type,
+            "entity_id": str(record.entity_id),
+            "method": record.method,
+            "reviewer": record.reviewer,
+            "verified_at": record.verified_at.isoformat(),
+            "result": record.result,
+            "evidence": record.evidence,
+            "notes": record.notes,
+        }
+        for record in records
+    ]

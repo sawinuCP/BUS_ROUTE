@@ -79,9 +79,11 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 1.3 complete · next task: Phase 1.4 (pilot coverage audit + field-verification workflow)**
+> **▸ CURRENT POSITION: Phase 1.4 complete · next task: Phase 2 (place search, local names, map) — awaiting owner go-ahead**
 >
-> **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); field-verification approach researched → **three-tier ODK-centred approach recommended** (`docs/research/field-verification-approach.md`) — awaiting owner's go-ahead + staffing sub-choice (D-3). D-4–D-7 deferred by owner.
+> **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
+> **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
+> **Field kit ready:** 100-stop survey list, 22-pattern ride-check list exported; ODK form CSVs + import pipeline live (see `data/field-verification/README.md`).
 
 | Phase / task | Status | Commit | Headline outcome | Verification result |
 |---|---|---|---|---|
@@ -93,7 +95,8 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 1.1 Canonical schema | ✅ Done | `b8dd456` | 22 PostGIS tables; `UNIQUE(pattern, sequence)` invariant; provenance/versioning; ADR-0006 | **25/25 tests** (13 new integration); up/down reversible |
 | 1.2 Ingestion framework | ✅ Done | `8b3ece9` | Adapter contract; checksum archive; quarantine; idempotent upserts; diffs; publish/rollback; admin API; ADR-0007 | **40/40 tests**; live publish/rollback smoke |
 | 1.3 First adapter + QA report | ✅ Done | `3f36d01` | OSM/Overpass adapter (ODbL registered); variant grouping; ordered calls; QA reports; rights register | **46/46 tests**; **live ingest: 230 records → 176 added / 54 failed**; QA report committed |
-| **1.4 Pilot coverage audit + field verification** | ⬜ Next | — | Coverage scorecard; field checklist/workflow; QA queue | — |
+| 1.4 Coverage scorecard + field-verification workflow | ✅ Done | (see §6) | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
+| **2 — Place search, local names, map** | ⬜ Next | — | Search API + aliases; MapLibre screen; geocoder adapter | — |
 | 2 … 10 | ⬜ Not started | — | See §4 | — |
 
 **Current quality gate totals:** backend `pytest` **46 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **7 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend).
@@ -158,6 +161,16 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ---
 
+### Phase 1.4 — Coverage scorecard and field-verification workflow (2026-11-20)
+
+- **Coverage scorecard** (`data_quality/scorecard.py`, `GET /admin/coverage-scorecard`): transparent route-by-route completeness scoring (weights documented in code: calls 30, coordinates 20, variants 20, aliases 15, agency 15). Live result: **17 routes scored, average 23.0/100** — honestly low, reflecting missing calls/aliases/agencies. Evidence committed: `backend/data/validation_reports/pilot-coverage-scorecard.md`.
+- **QA review queue** (`data_quality/queue.py`, `GET /admin/qa-queue`): prioritized actionable review items — live: **35 items** (patterns under 2 calls, routes without agency, etc.), each with entity refs and suggested action.
+- **Verification recording** (`POST /admin/verifications`, `GET /admin/verifications`): entity-existence-checked writes to `verification_records` (method/reviewer/evidence/result) — the API the field import and future in-app reporter use.
+- **Field kit committed** (`data/field-verification/`): `README.md` (procedure: walking day, ride-along day, import, progress tracking) + XLSForm CSVs (`forms/stop_verification_{survey,choices,settings}.csv`, trilingual labels) → convert to XLSX → deploy on KoboToolbox free hosting (adopted default).
+- **Scripts**: `scripts/export_field_surveys.py` (live output: **100 stops, 22 patterns, 0 transfers**) and `scripts/import_field_verifications.py` (writes `verification_records`, produces corrections report; canonical data never modified directly; `--dry-run` supported).
+- **Issue I-18 discovered:** integration-test cleanup wipes dev canonical data (tests share the dev DB) → pilot re-ingested identically (`osm-overpass-4e442b17`, 230/176/54 — deterministic). Proper fix recorded as tech-debt: dedicated test database.
+
+
 ### Phase 1.3+ — Owner decisions and D-3 research (2026-11-20)
 
 - **Decisions recorded:** D-1 keep pilot candidate unpublished; D-2 pilot corridor = **central Colombo** (default bbox ratified); D-4 (ODbL legal review), D-5 (mobile device launch), D-6 (GitHub/CI), D-7 (si/ta reviewers) — **deferred by owner** with recorded "needed by" dates.
@@ -187,6 +200,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | I-15 | 2026-11-20 | 1.3 | Inline CHECK constraints in raw-SQL migration `0002` got PostgreSQL auto-names; model-declared names drifted from DB | Migration `0004` initial failure | `0004` drops auto-named and adds convention-named constraints (both directions) | pg_constraint query |
 | I-16 | 2026-11-20 | 1.3 | mypy couldn't narrow link optionals through a "collect-missing-then-raise" pattern | 3 mypy errors | Immediate per-reference `raise ValueError` in `PatternStopUpsert` | mypy log |
 | I-17 | 2026-11-20 | 1.3 | PowerShell `Set-Content -Encoding utf8` wrote a BOM → fixture JSON unparseable | Live smoke quarantined (correctly!) | Rewrote file without BOM (`UTF8Encoding $false`) — the quarantine path proved itself | sync_runs.error |
+| I-18 | 2026-11-20 | 1.4 | Integration-test canonical-table cleanup wiped the dev pilot data (tests share the dev DB) | Pilot had to be re-ingested | Re-ingested identically (`osm-overpass-4e442b17`, 230/176/54 — adapter is deterministic). Tech-debt recorded: dedicated test database for integration tests | sync history |
 
 ---
 
@@ -219,6 +233,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: `/ready` 200 (database ok, redis ok) after Phase 1.3 rebuild.
 - 2026-11-20: OSM pilot ingest run `d4d4a724` succeeded (230/176/54) — see §6 Phase 1.3.
 - 2026-11-20: QA report `backend/data/validation_reports/osm-overpass-d4d4a724.md` generated and committed.
+- 2026-11-20: Phase 1.4 live verification — re-ingest `osm-overpass-4e442b17` succeeded (230/176/54, deterministic); coverage scorecard **17 routes, average 23.0/100**; QA queue **35 items**; field-survey exports generated (**100 stops / 22 patterns / 0 transfers**); reports committed under `backend/data/validation_reports/`.
 
 ---
 
@@ -230,7 +245,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 |---|---|---|
 | D-1 | Publish pilot candidate? | **Keep as candidate** — no publish until field verification (facts remain `unverified`) |
 | D-2 | Pilot corridor | **Central Colombo** (default bbox `PILOT_BBOX=6.88,79.83,6.96,79.90` ratified; configurable, never hard-coded) |
-| D-3 | Field-verification approach | **Researched; three-tier ODK-centred approach recommended** — see `docs/research/field-verification-approach.md`; owner go-ahead + staffing sub-choice still awaited |
+| D-3 | Field-verification approach | **ADOPTED (2026-11-20): three-tier ODK-centred approach** — `docs/research/field-verification-approach.md`. Defaults: KoboToolbox free hosting (Tier-1 tool), owner as field worker. Implementation = Phase 1.4 |
 | D-4 | ODbL legal review | **Deferred** — before any public release |
 | D-5 | Mobile device launch | **Deferred** — owner tooling, before Phase 2 UX work |
 | D-6 | GitHub remote + CI | **Deferred** — low effort when owner is ready |
@@ -252,8 +267,10 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 ## 10. Remaining path to completion (living checklist)
 
 **Phase 1 (finish):**
-- [x] Owner decisions D-1/D-2 resolved (2026-11-20); D-3 approach researched and recommended
-- [ ] Phase 1.4 — coverage scorecard for the ratified central-Colombo pilot; ODK/KoboToolbox verification forms + import script (`import_field_verifications.py`); field checklist; QA queue; rollback demonstration — pending owner go-ahead on the Tier-1 tooling choice
+- [x] Owner decisions D-1/D-2 resolved (2026-11-20); D-3 adopted (three-tier approach)
+- [x] Phase 1.4 — coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API; field kit committed (`data/field-verification/`)
+- [ ] **Owner field walks** (2–3 days, per `data/field-verification/README.md`) — the Phase 1 exit gate's field-check item; deploy Kobo form, walk, import
+- [ ] Tech-debt: dedicated test database for integration tests (I-18)
 
 **Phase 2 — Place search, local names, map:**
 - [ ] Place/alias search API (PostgreSQL full-text + trigram; language-tagged); ambiguous-result handling

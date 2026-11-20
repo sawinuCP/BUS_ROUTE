@@ -1,0 +1,17 @@
+type,name,label::English,label::Sinhala,label::Tamil,required,hint,relevant
+start,start,Start time,,,,,
+end,end,End time,,,,,
+today,today,Today,,,,,
+deviceid,deviceid,Device ID,,,,,
+text,stop_id,Stop ID,නැවතුම් හැඳුනුම,நிறுத்தும் அடையாளம்,yes,Copy the stop_id from the printed stops list (stops_survey.csv),
+text,canonical_name,Name shown on the list,,,,no,"Reference only — the printed list shows the current name",
+select_one,verify_result,On-site result,භූමියේ ප්‍රතිඵලය,நிலத்தில் முடிவு,yes,"Did this stop exist where our data says it is?",
+text,corrected_name,Corrected name,නිවැරදි කළ නම,திருத்திய பெயர்,yes,The correct name as written on the signboard,${verify_result}='corrected'
+text,name_si,Sinhala name on signage,සිංහල නම,சிங்கள பெயர்,,If the signboard shows Sinhala,${verify_result}='corrected'
+text,name_ta,Tamil name on signage,தமிழ் பெயர்,தமிழ் பெயர்,,If the signboard shows Tamil,${verify_result}='corrected'
+select_one,stop_type_observed,What kind of stop is it?,නැවතුම් වර්ගය,நிறுத்தும் வகை,yes,"Roadside / stand / terminal / bay / platform",
+text,side_notes,Boarding side and landmark,හරි පැත්ත හා ලකුණ,சரியான பக்கம் மற்றும் அடையாளம்,yes,"e.g. 'opposite side, heading towards Colombo, beside the pharmacy'",
+text,shelter_access,Shelter / bench / surface notes,නැවතුම් පහසුකම්,வசதிகள்,,"Optional",
+geopoint,gps,Stand at the boarding point and capture GPS,GPS ලකුණ,GPS இடம்,yes,Stand exactly where travellers board,
+image,photo,Photo (optional),ඡායාරූපය,புகைப்படம்,,"No faces or number plates; ask consent if people are in frame",
+text,evidence_notes,Evidence notes,සාක්ෂි සටහන්,ஆதார குறிப்புகள்,,"Anything that supports this observation",

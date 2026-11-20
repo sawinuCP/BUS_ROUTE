@@ -41,6 +41,10 @@ yarn-error.log*
 # quality reports live under backend/data/validation_reports/.
 data/raw/
 backend/data/raw/
+# Field-survey runtime exports/imports (form definitions are committed)
+data/field-verification/exports/
+data/field-verification/imports/
+backend/data/field-verification/
 *.log
 tmp/
 temp/
