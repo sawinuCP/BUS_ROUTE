@@ -21,11 +21,14 @@ here stay `unverified` until field-checked.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
 
 from app.modules.data_ingestion.adapters.base import FetchResult, RawRecord, SourceAdapter
+
+logger = logging.getLogger(__name__)
 
 
 def build_overpass_query(bbox: str, timeout_seconds: int = 90) -> str:
@@ -44,17 +47,23 @@ def build_overpass_query(bbox: str, timeout_seconds: int = 90) -> str:
 
 
 class OverpassAdapter(SourceAdapter):
-    """Reads one snapshot from an Overpass API endpoint for a fixed bbox."""
+    """Reads one snapshot from an Overpass API endpoint for a fixed bbox.
+
+    Tries the primary endpoint, then an optional mirror (public instances are
+    frequently overloaded — 502s are transient, not a data problem).
+    """
 
     def __init__(
         self,
         bbox: str,
         endpoint: str = "https://overpass-api.de/api/interpreter",
+        fallback_endpoint: str | None = None,
         timeout_seconds: int = 90,
         adapter_version: str = "0.1.0",
     ) -> None:
         self._bbox = bbox
         self._endpoint = endpoint
+        self._fallback_endpoint = fallback_endpoint
         self._timeout = timeout_seconds
         self._adapter_version = adapter_version
 
@@ -63,9 +72,26 @@ class OverpassAdapter(SourceAdapter):
         return self._adapter_version
 
     def fetch(self) -> FetchResult:
+        endpoints = [self._endpoint]
+        if self._fallback_endpoint and self._fallback_endpoint != self._endpoint:
+            endpoints.append(self._fallback_endpoint)
+        last_error: Exception | None = None
+        for endpoint in endpoints:
+            try:
+                return self._fetch_from(endpoint)
+            except httpx.HTTPError as exc:
+                last_error = exc
+                logger.warning(
+                    "overpass endpoint failed",
+                    extra={"endpoint": endpoint, "error_type": type(exc).__name__},
+                )
+        assert last_error is not None
+        raise last_error
+
+    def _fetch_from(self, endpoint: str) -> FetchResult:
         query = build_overpass_query(self._bbox, self._timeout)
         response = httpx.post(
-            self._endpoint,
+            endpoint,
             data={"data": query},
             timeout=self._timeout,
             headers={"User-Agent": "sljp-ingestion/0.1 (journey planner pilot; ODbL)"},
@@ -74,7 +100,7 @@ class OverpassAdapter(SourceAdapter):
         return FetchResult(
             content=response.content,
             content_type=response.headers.get("content-type", "application/json"),
-            metadata={"endpoint": self._endpoint, "bbox": self._bbox},
+            metadata={"endpoint": endpoint, "bbox": self._bbox},
         )
 
     def parse(self, content: bytes, metadata: dict[str, Any]) -> list[RawRecord]:

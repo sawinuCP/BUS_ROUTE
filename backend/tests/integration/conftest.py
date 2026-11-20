@@ -1,21 +1,59 @@
-"""Fixtures for integration tests against the live canonical database.
+"""Fixtures for integration tests against the dedicated test database (I-18).
 
-These tests exercise real PostgreSQL/PostGIS behaviour (constraints, indexes,
-geometry roundtrips) using the configured DATABASE_URL. They skip when the
-database is unreachable so unit runs stay green without infrastructure.
+Integration tests run against `journey_planner_test` (created + migrated
+automatically below), so test cleanup never wipes development data. Tests skip
+when the database is unreachable so unit runs stay green without infrastructure.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config as alembic_config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.platform.config import get_settings
 
-# Children first — used to reset canonical rows between tests that commit
+
+@pytest.fixture(scope="session", autouse=True)
+def _migrate_test_database() -> Iterator[None]:
+    """Create (if needed) and migrate the dedicated test database once per run.
+
+    Synchronous on purpose: a session-scoped async fixture would need a
+    session-scoped event loop, which conflicts with per-test loops.
+    """
+    settings = get_settings()
+    admin_url = settings.database_url.rsplit("/", 1)[0] + "/postgres"
+
+    async def _ensure_database() -> None:
+        admin_engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            async with admin_engine.connect() as conn:
+                exists = (
+                    await conn.execute(
+                        text("SELECT 1 FROM pg_database WHERE datname = 'journey_planner_test'")
+                    )
+                ).scalar_one_or_none()
+                if exists is None:
+                    await conn.execute(text("CREATE DATABASE journey_planner_test"))
+        finally:
+            await admin_engine.dispose()
+
+    asyncio.run(_ensure_database())
+
+    # Migrate the test DB via Alembic (env.py runs its own asyncio loop).
+    alembic_ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+    alembic_cfg = alembic_config(str(alembic_ini))
+    command.upgrade(alembic_cfg, "head")
+    yield
+
+
+# Children first — resets canonical rows between tests that commit
 # (API-level tests commit; service/schema tests roll back transactions).
 _CLEANUP_ORDER: tuple[str, ...] = (
     "DELETE FROM active_dataset",
@@ -45,11 +83,7 @@ _CLEANUP_ORDER: tuple[str, ...] = (
 
 @pytest.fixture(autouse=True)
 async def clean_canonical_tables() -> AsyncIterator[None]:
-    """Empty the canonical tables before each integration test.
-
-    Guarantees tests are independent even when earlier tests (or manual API
-    calls) committed rows. Runs before the test's own transaction opens.
-    """
+    """Empty the canonical tables before each integration test (test DB only)."""
     engine = create_async_engine(get_settings().database_url)
     try:
         try:
@@ -57,7 +91,7 @@ async def clean_canonical_tables() -> AsyncIterator[None]:
                 for statement in _CLEANUP_ORDER:
                     await conn.execute(text(statement))
         except Exception:  # noqa: BLE001 - unreachable infra must skip, not fail
-            pytest.skip("canonical database not reachable — skipping integration tests")
+            pytest.skip("test database not reachable — skipping integration tests")
         yield
     finally:
         await engine.dispose()

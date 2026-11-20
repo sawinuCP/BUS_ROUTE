@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     # OSM Overpass endpoint (read-only public API; ODbL — see data source register).
     osm_overpass_endpoint: str = "https://overpass-api.de/api/interpreter"
+    # Community mirror used when the primary returns transient errors.
+    osm_overpass_fallback: str | None = "https://overpass.kumi.systems/api/interpreter"
 
     cors_origins: list[str] = []
 

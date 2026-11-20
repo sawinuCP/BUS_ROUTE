@@ -79,11 +79,12 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 1.4 complete · next task: Phase 2 (place search, local names, map) — awaiting owner go-ahead**
+> **▸ CURRENT POSITION: Phase 2 complete · next task: Phase 3 (pedestrian routing & transfer graph) — awaiting owner go-ahead**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
 > **Field kit ready:** 100-stop survey list, 22-pattern ride-check list exported; ODK form CSVs + import pipeline live (see `data/field-verification/README.md`).
+> **Phase 2 note:** map renderer (MapLibre) screen deferred pending the dev-client/device spike (owner tooling); search flow + manual-coordinate fallback shipped.
 
 | Phase / task | Status | Commit | Headline outcome | Verification result |
 |---|---|---|---|---|
@@ -95,11 +96,12 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 1.1 Canonical schema | ✅ Done | `b8dd456` | 22 PostGIS tables; `UNIQUE(pattern, sequence)` invariant; provenance/versioning; ADR-0006 | **25/25 tests** (13 new integration); up/down reversible |
 | 1.2 Ingestion framework | ✅ Done | `8b3ece9` | Adapter contract; checksum archive; quarantine; idempotent upserts; diffs; publish/rollback; admin API; ADR-0007 | **40/40 tests**; live publish/rollback smoke |
 | 1.3 First adapter + QA report | ✅ Done | `3f36d01` | OSM/Overpass adapter (ODbL registered); variant grouping; ordered calls; QA reports; rights register | **46/46 tests**; **live ingest: 230 records → 176 added / 54 failed**; QA report committed |
-| 1.4 Coverage scorecard + field-verification workflow | ✅ Done | (see §6) | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
-| **2 — Place search, local names, map** | ⬜ Next | — | Search API + aliases; MapLibre screen; geocoder adapter | — |
+| 1.4 Coverage scorecard + field-verification workflow | ✅ Done | `5d31006` | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
+| 2 Place search + local names + map | ✅ Done* | (this phase) | Trigram search over aliases (en/si/ta) + canonical names; `GET /places/search`, `GET /stops?bbox=`, reverse-geocode adapter (none configured — honest); mobile search UI + manual-coordinate fallback; migration `0005` | **60/60 backend** · **11/11 mobile** · live: 'pettah' → stop hit, '176' → route hit, bbox → 54 stops; *MapLibre screen pending device spike* |
+| **3 — Pedestrian routing & transfer graph** | ⬜ Next | — | Valhalla PoC; walking adapter; shapes import | — |
 | 2 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **46 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **7 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend).
+**Current quality gate totals:** backend `pytest` **60 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend).
 
 ---
 
@@ -171,6 +173,17 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **Issue I-18 discovered:** integration-test cleanup wipes dev canonical data (tests share the dev DB) → pilot re-ingested identically (`osm-overpass-4e442b17`, 230/176/54 — deterministic). Proper fix recorded as tech-debt: dedicated test database.
 
 
+### Phase 2 — Place search, local names and map foundation (2026-11-20)
+
+- **Migration `0005_trgm_search_indexes`**: `pg_trgm` extension + GIN trigram indexes on `entity_aliases.alias`, `stops.name`, `places.name`, `localities.name`.
+- **Normalization** (`places/normalize.py`): casefold + punctuation/symbol folding via Unicode **general categories** — critical fix: Python's `\w` does not match Indic combining marks (U+0DDD/U+0DCF are `isalnum()==False`), so regex-class normalization was destroying Sinhala words; combining marks (M*) are preserved, NFKC folding removed (it decomposes native-script marks — documented trade-off: full-width Latin is not folded to ASCII).
+- **Search service + API** (`places/search.py`, `GET /api/v1/places/search`): unified search over stops/places/localities/routes across canonical names and en/si/ta aliases; transparent scoring (exact 1.0 / prefix 0.9 / substring 0.8 / alias trigram ≥0.5); deduped per entity; every hit carries verification status and matched language; ambiguous candidates always listed, never auto-selected.
+- **Map-data endpoint** `GET /api/v1/stops?bbox=` (validated bbox; live: 54 stops returned for Fort/Pettah).
+- **Geocoder adapter** (`places/geocoder.py`): provider interface + `NoGeocoder` default that honestly reports "no provider configured" — provider selection remains an open owner decision (public Nominatim is not production-eligible per the knowledge base).
+- **Mobile**: Home screen became the search experience (input → results with type + matched-language + "not field-checked yet" badge → selection only on user tap; manual lat/lon fallback for no-location/no-result); `searchPlaces()` typed client; tests use RNTL v14 `userEvent` (async state updates).
+- **Live verification**: 'pettah' → 1 stop hit; '176' (types=route) → route hit (score 1.0); bbox → 54 stops; reverse-geocode → `provider: none, results: []` (honest).
+
+
 ### Phase 1.3+ — Owner decisions and D-3 research (2026-11-20)
 
 - **Decisions recorded:** D-1 keep pilot candidate unpublished; D-2 pilot corridor = **central Colombo** (default bbox ratified); D-4 (ODbL legal review), D-5 (mobile device launch), D-6 (GitHub/CI), D-7 (si/ta reviewers) — **deferred by owner** with recorded "needed by" dates.
@@ -201,6 +214,8 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | I-16 | 2026-11-20 | 1.3 | mypy couldn't narrow link optionals through a "collect-missing-then-raise" pattern | 3 mypy errors | Immediate per-reference `raise ValueError` in `PatternStopUpsert` | mypy log |
 | I-17 | 2026-11-20 | 1.3 | PowerShell `Set-Content -Encoding utf8` wrote a BOM → fixture JSON unparseable | Live smoke quarantined (correctly!) | Rewrote file without BOM (`UTF8Encoding $false`) — the quarantine path proved itself | sync_runs.error |
 | I-18 | 2026-11-20 | 1.4 | Integration-test canonical-table cleanup wiped the dev pilot data (tests share the dev DB) | Pilot had to be re-ingested | Re-ingested identically (`osm-overpass-4e442b17`, 230/176/54 — adapter is deterministic). Tech-debt recorded: dedicated test database for integration tests | sync history |
+| I-18-fix | 2026-11-20 | 2 | Dedicated test database implemented: tests create + migrate `journey_planner_test` (init script + session fixture); dev data never touched by tests again | Recurring wipe risk eliminated | `tests/conftest.py` URL redirect; `tests/integration/conftest.py` session fixture (sync wrapper; AUTOCOMMIT DB creation; alembic upgrade) | pytest run: dev stops stayed intact |
+| I-19 | 2026-11-20 | 2 | Overpass public instance returned 502 (and mirror ReadTimeout) → sync turned into unhandled 500 | Live re-ingest blocked; poor API semantics | (a) `run_sync` catches fetch failures → run `failed`, previous data keeps serving, API stays 200 (plan §5.2 rule 3); (b) Overpass **mirror fallback** (`OSM_OVERPASS_FALLBACK`, kumi.systems) added to adapter | container logs; retry succeeded |
 
 ---
 
@@ -234,6 +249,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: OSM pilot ingest run `d4d4a724` succeeded (230/176/54) — see §6 Phase 1.3.
 - 2026-11-20: QA report `backend/data/validation_reports/osm-overpass-d4d4a724.md` generated and committed.
 - 2026-11-20: Phase 1.4 live verification — re-ingest `osm-overpass-4e442b17` succeeded (230/176/54, deterministic); coverage scorecard **17 routes, average 23.0/100**; QA queue **35 items**; field-survey exports generated (**100 stops / 22 patterns / 0 transfers**); reports committed under `backend/data/validation_reports/`.
+- 2026-11-20: Phase 2 live verification — pilot re-ingested as `osm-overpass-3cf065d7` (230/176/54, after an Overpass outage was survived via mirror fallback); `GET /places/search?q=pettah` → 1 stop; `?q=176&types=route` → 1 route; `GET /stops?bbox=79.84,6.90,79.87,6.94` → **54 stops**; reverse-geocode honestly returns `provider: none`.
 
 ---
 
@@ -273,10 +289,11 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [ ] Tech-debt: dedicated test database for integration tests (I-18)
 
 **Phase 2 — Place search, local names, map:**
-- [ ] Place/alias search API (PostgreSQL full-text + trigram; language-tagged); ambiguous-result handling
-- [ ] Geocoder behind provider adapter (rate/caching terms respected)
-- [ ] MapLibre map screen; current-location flow with manual fallback; MapLibre ↔ Expo spike
-- [ ] Destination entrances for curated pilot POIs
+- [x] Place/alias search API (trigram; language-tagged); ambiguous-result handling (listed, never auto-selected)
+- [x] Geocoder behind provider adapter (NoGeocoder default — provider choice still open, GAP-013/D-item)
+- [x] Mobile search flow (results + disambiguation + manual-coordinate fallback)
+- [ ] MapLibre map screen — **pending dev-client/device spike** (owner tooling; recorded like the Phase 0 device item)
+- [ ] Destination entrances for curated pilot POIs (Phase 2.2 candidate)
 
 **Phase 3 — Pedestrian routing and transfer graph:**
 - [ ] Valhalla proof of concept on Sri Lankan OSM pedestrian data (vs GraphHopper) → ADR

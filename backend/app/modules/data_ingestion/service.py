@@ -474,7 +474,20 @@ class IngestionService:
         session.add(run)
         await session.flush()
 
-        fetched = adapter.fetch()
+        try:
+            fetched = adapter.fetch()
+        except Exception as exc:  # noqa: BLE001 - provider failures must not 500 the API
+            # Plan §5.2 rule 3: a failed source sync leaves the previous
+            # version serving. Canonical data untouched.
+            run.status = "failed"
+            run.finished_at = _utcnow()
+            run.error = f"fetch failed: {type(exc).__name__}"
+            await session.flush()
+            logger.warning(
+                "sync fetch failed",
+                extra={"source": source.name, "error_type": type(exc).__name__},
+            )
+            return SyncOutcome(run_id=run.id, status="failed", quarantine_errors=[run.error or ""])
         checksum = sha256_hex(fetched.content)
 
         # Idempotency short-circuit: this exact payload is already archived.

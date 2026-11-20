@@ -1,4 +1,48 @@
-import { checkBackendHealth } from '@/lib/api';
+import { checkBackendHealth, searchPlaces } from '@/lib/api';
+
+describe('searchPlaces', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('encodes the query and returns the parsed response', async () => {
+    const payload = {
+      query: 'homagama',
+      count: 1,
+      results: [
+        {
+          entity_type: 'stop',
+          entity_id: 'abc',
+          name: 'Homagama Junction',
+          matched_text: 'Homagama Junction',
+          matched_language: 'canonical',
+          score: 0.9,
+          coordinates: { lon: 79.9777, lat: 6.844 },
+          verification_status: 'unverified',
+          locality: null,
+          mode: 'bus',
+        },
+      ],
+      note: 'candidates are listed for selection',
+    };
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+
+    const result = await searchPlaces('homagama', fetchMock as unknown as typeof fetch);
+
+    expect(result).toEqual(payload);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8000/api/v1/places/search?q=homagama',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('throws on error statuses instead of parsing an error envelope as data', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 500 });
+    await expect(searchPlaces('x', fetchMock as unknown as typeof fetch)).rejects.toThrow(
+      'search failed with status 500',
+    );
+  });
+});
 
 describe('checkBackendHealth', () => {
   afterEach(() => {
