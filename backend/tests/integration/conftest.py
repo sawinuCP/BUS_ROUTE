@@ -15,16 +15,60 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.platform.config import get_settings
 
+# Children first — used to reset canonical rows between tests that commit
+# (API-level tests commit; service/schema tests roll back transactions).
+_CLEANUP_ORDER: tuple[str, ...] = (
+    "DELETE FROM active_dataset",
+    "DELETE FROM dataset_version_entities",
+    "DELETE FROM data_change_audit",
+    "DELETE FROM verification_records",
+    "DELETE FROM entity_aliases",
+    "DELETE FROM place_access_points",
+    "DELETE FROM places",
+    "DELETE FROM fare_rules",
+    "DELETE FROM transfer_connections",
+    "DELETE FROM route_pattern_stops",
+    "DELETE FROM route_patterns",
+    "DELETE FROM stop_access_points",
+    "DELETE FROM stops",
+    "DELETE FROM route_shapes",
+    "DELETE FROM transport_routes",
+    "DELETE FROM transport_agencies",
+    "DELETE FROM localities",
+    "DELETE FROM source_records",
+    "DELETE FROM source_snapshots",
+    "DELETE FROM sync_runs",
+    "DELETE FROM data_sources",
+    "DELETE FROM dataset_versions",
+)
+
+
+@pytest.fixture(autouse=True)
+async def clean_canonical_tables() -> AsyncIterator[None]:
+    """Empty the canonical tables before each integration test.
+
+    Guarantees tests are independent even when earlier tests (or manual API
+    calls) committed rows. Runs before the test's own transaction opens.
+    """
+    engine = create_async_engine(get_settings().database_url)
+    try:
+        try:
+            async with engine.begin() as conn:
+                for statement in _CLEANUP_ORDER:
+                    await conn.execute(text(statement))
+        except Exception:  # noqa: BLE001 - unreachable infra must skip, not fail
+            pytest.skip("canonical database not reachable — skipping integration tests")
+        yield
+    finally:
+        await engine.dispose()
+
 
 @pytest.fixture
 async def db_conn() -> AsyncIterator[AsyncConnection]:
     """A connection wrapped in one transaction; every test rolls back cleanly."""
     engine = create_async_engine(get_settings().database_url)
     try:
-        try:
-            conn = await engine.connect()
-        except Exception:  # noqa: BLE001 - unreachable infra must skip, not fail
-            pytest.skip("canonical database not reachable — skipping integration tests")
+        conn = await engine.connect()
         transaction = await conn.begin()
         try:
             yield conn

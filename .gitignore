@@ -37,6 +37,7 @@ yarn-error.log*
 !.env.example
 
 # ---- Local data, logs, temp ----
+data/
 data/local/
 *.log
 tmp/

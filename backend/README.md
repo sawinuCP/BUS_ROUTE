@@ -28,15 +28,35 @@ backend/
 
 ## Canonical schema (Phase 1.1)
 
-`alembic upgrade head` creates 22 canonical tables (ADR-0006): provenance and
-versioning (`data_sources`, `source_snapshots`, `source_records`, `sync_runs`,
-`dataset_versions`, `dataset_version_entities`, `active_dataset`), the
-transport network (`transport_agencies`, `transport_routes`, `route_patterns`,
-`stops`, `stop_access_points`, `route_pattern_stops`, `route_shapes`,
-`transfer_connections`, `fare_rules`), places/aliases (`localities`, `places`,
-`place_access_points`, `entity_aliases`), and data quality
-(`verification_records`, `data_change_audit`). Core invariant: ordered stop
-calls are `UNIQUE (pattern_id, sequence)`.
+`alembic upgrade head` creates 22 canonical tables (ADR-0006) plus the
+canonical-link bookkeeping of `0003_source_record_link` (ADR-0007):
+provenance and versioning (`data_sources`, `source_snapshots`,
+`source_records`, `sync_runs`, `dataset_versions`, `dataset_version_entities`,
+`active_dataset`), the transport network (`transport_agencies`,
+`transport_routes`, `route_patterns`, `stops`, `stop_access_points`,
+`route_pattern_stops`, `route_shapes`, `transfer_connections`, `fare_rules`),
+places/aliases (`localities`, `places`, `place_access_points`,
+`entity_aliases`), and data quality (`verification_records`,
+`data_change_audit`). Core invariant: ordered stop calls are
+`UNIQUE (pattern_id, sequence)`.
+
+## Ingestion framework (Phase 1.2)
+
+`app/modules/data_ingestion/` implements the §5.2 lifecycle (ADR-0007):
+
+- `adapters/base.py` — `SourceAdapter` contract (`fetch` + `parse` → `RawRecord`);
+  `adapters/file.py` — generic local-JSON source for dev/fixtures.
+- `archive.py` — `SnapshotArchive` (sha256 content-addressed, local FS in dev).
+- `quality.py` — builtin rules; any failure **quarantines the whole run**.
+- `service.py` — `SourceRegistry`, `IngestionService.run_sync`
+  (fetch → checksum dedupe → archive → parse → validate → idempotent upsert →
+  diffs → candidate version), `DatasetVersionService` (publish/rollback),
+  entity upsert handlers for `stop`, `route`, `place` (pattern/stop-sequence
+  and transfer handlers require cross-record matching → Phase 1.3).
+
+Admin endpoints (`/api/v1/admin/sources`, `/admin/sources/{id}/sync`,
+`/admin/sync-runs/{id}`, `/admin/dataset-versions[...]`) are mounted only
+outside production (auth arrives in Phase 9).
 
 ## Development (Docker-first — recommended)
 

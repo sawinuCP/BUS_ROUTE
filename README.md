@@ -78,6 +78,7 @@ See [architecture/README.md](architecture/README.md) for the full index (`00` Ex
 - ADR-0004 — Background job processing library
 - ADR-0005 — Docker-first local development environment (pinned Python 3.12)
 - ADR-0006 — Canonical schema, dataset-versioning strategy and PostGIS conventions
+- ADR-0007 — Ingestion framework: adapters, archive, idempotency, publish/rollback
 
 ## How to use
 

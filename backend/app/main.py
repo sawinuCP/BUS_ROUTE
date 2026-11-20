@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.api.routes.admin import router as admin_router
 from app.api.routes.health import router as health_router
 from app.platform.config import get_settings
 from app.platform.db import dispose_engine
@@ -82,6 +83,11 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router, prefix=settings.api_v1_prefix)
+
+    # Admin/data-operations endpoints are mounted only outside production.
+    # Production must expose them behind OAuth2/OIDC + RBAC (architecture doc 14).
+    if settings.app_env in ("local", "test"):
+        app.include_router(admin_router, prefix=settings.api_v1_prefix)
 
     @app.get("/", include_in_schema=False)
     async def root() -> JSONResponse:

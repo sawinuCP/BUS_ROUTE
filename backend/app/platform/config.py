@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/journey_planner"
     redis_url: str = "redis://localhost:6379/0"
 
+    # Immutable raw-source archive root (dev: local filesystem; staging/production:
+    # object storage via the SnapshotArchive interface, ADR-0007).
+    raw_archive_dir: str = "data/raw"
+
     cors_origins: list[str] = []
 
     @property

@@ -76,6 +76,8 @@ class SourceRecord(Base, UuidPk, Timestamped):
     )
     external_id: Mapped[str] = mapped_column(String(300), nullable=False)
     entity_hint: Mapped[str | None] = mapped_column(String(50))  # stop | route | pattern | place
+    canonical_entity_type: Mapped[str | None] = mapped_column(String(40))
+    canonical_entity_id: Mapped[uuid.UUID | None] = mapped_column()
     raw_ref: Mapped[str | None] = mapped_column(Text)  # locator inside the snapshot payload
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     normalised: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
