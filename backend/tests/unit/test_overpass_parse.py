@@ -94,3 +94,42 @@ def test_ordered_calls_and_role_derived_eligibility(parsed: list) -> None:
         False,
         True,
     )  # stop_exit_only
+
+
+def test_route_shape_from_way_members_in_order(parsed: list) -> None:
+    shapes = [record for record in parsed if record.entity_hint == "route_shape"]
+    assert [record.external_id for record in shapes] == ["osm-relation/200001/shape"]
+    shape = shapes[0]
+    assert shape.payload["pattern_external_ref"] == "osm-relation/200001"
+    # Way 300001 (3 nodes) + way 300002 (2 nodes); the shared node 100012
+    # appears once, consecutive duplicates are removed, order preserved.
+    assert shape.payload["coordinates"] == [
+        [79.857, 6.933],
+        [79.855, 6.929],
+        [79.853, 6.925],
+        [79.851, 6.921],
+    ]
+    assert shape.payload["missing_way_nodes"] == 0
+
+
+def test_patterns_without_ways_are_reported_not_fabricated() -> None:
+    content = FIXTURE.read_bytes()
+    metadata: dict = {}
+    OverpassAdapter("6.88,79.83,6.96,79.90").parse(content, metadata)
+    diagnostics = metadata["osm"]
+    assert sorted(diagnostics["patterns_without_shape"]) == [
+        "osm-relation/200002",
+        "osm-relation/200003",
+    ]
+
+
+def test_one_access_point_per_named_stop_at_its_node(parsed: list) -> None:
+    access_points = [record for record in parsed if record.entity_hint == "stop_access_point"]
+    by_id = {record.external_id: record for record in access_points}
+    assert set(by_id) == {
+        "osm-node/100001/access-point",
+        "osm-node/100002/access-point",
+    }
+    ap = by_id["osm-node/100001/access-point"]
+    assert ap.payload["stop_external_ref"] == "osm-node/100001"
+    assert (ap.payload["lon"], ap.payload["lat"]) == (79.858, 6.934)

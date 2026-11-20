@@ -37,10 +37,18 @@ class QualityReportService:
             "SELECT verification_status, count(*) FROM stops"
             " GROUP BY verification_status ORDER BY verification_status"
         )
+        access_points_total = await _scalar("SELECT count(*) FROM stop_access_points")
+        shapes_total = await _scalar(
+            "SELECT count(*) FROM route_patterns WHERE shape_id IS NOT NULL"
+        )
+        shapes_with_geometry = await _scalar("SELECT count(*) FROM route_shapes")
         return {
             "stops_total": stops_total,
             "stops_with_coords": stops_with_coords,
             "stop_verification": stop_verification,
+            "access_points_total": access_points_total,
+            "shapes_total": shapes_total,
+            "shapes_with_geometry": shapes_with_geometry,
             "routes_total": await _scalar("SELECT count(*) FROM transport_routes"),
             "patterns_total": await _scalar("SELECT count(*) FROM route_patterns"),
             "calls_total": await _scalar("SELECT count(*) FROM route_pattern_stops"),
@@ -59,9 +67,6 @@ class QualityReportService:
             ),
             "routes_without_agency": await _scalar(
                 "SELECT count(*) FROM transport_routes WHERE agency_id IS NULL"
-            ),
-            "patterns_without_shape": await _scalar(
-                "SELECT count(*) FROM route_patterns WHERE shape_id IS NULL"
             ),
         }
 
@@ -111,9 +116,9 @@ class QualityReportService:
             },
             {
                 "check": "patterns without geometry (shape)",
-                "count": stats["patterns_without_shape"],
+                "count": stats["patterns_total"] - stats["shapes_total"],
                 "severity": "info",
-                "note": "shapes not imported in this phase",
+                "note": "truncated relations or members without way geometry; field-verify",
             },
         ]
 
@@ -139,9 +144,12 @@ class QualityReportService:
                     "with_coordinates": stats["stops_with_coords"],
                 },
                 "stop_verification_status": dict(stats["stop_verification"]),
+                "stop_access_points": stats["access_points_total"],
                 "routes": stats["routes_total"],
                 "route_patterns": stats["patterns_total"],
                 "route_pattern_stops": stats["calls_total"],
+                "patterns_with_shape": stats["shapes_total"],
+                "route_shapes": stats["shapes_with_geometry"],
                 "aliases_by_language": dict(stats["aliases"]),
                 "transfer_connections": stats["transfers_total"],
                 "places": stats["places_total"],
@@ -187,9 +195,12 @@ class QualityReportService:
             "## Coverage",
             "",
             f"- Stops: {coverage['stops']['total']}"
-            f" ({coverage['stops']['with_coordinates']} with coordinates)",
+            f" ({coverage['stops']['with_coordinates']} with coordinates)"
+            f"; stop access points: {coverage['stop_access_points']}",
             f"- Routes: {coverage['routes']}; patterns: {coverage['route_patterns']};"
-            f" ordered calls: {coverage['route_pattern_stops']}",
+            f" ordered calls: {coverage['route_pattern_stops']}"
+            f"; patterns with a shape: {coverage['patterns_with_shape']}"
+            f" ({coverage['route_shapes']} shape geometries)",
             "- Aliases by language: "
             + ", ".join(
                 f"{lang}: {count}" for lang, count in coverage["aliases_by_language"].items()

@@ -45,12 +45,38 @@ class WalkPlan:
     duration_s: float
     steps: tuple[WalkStep, ...]
     provider: str
+    coordinates: tuple[tuple[float, float], ...] = ()
 
     @property
     def summary(self) -> str:
         """Human summary of the walk (en; localisation is Phase 5)."""
         steps_desc = f"{len(self.steps)} steps" if self.steps else "no steps"
         return f"{self.distance_m:.0f} m, {self.duration_s / 60:.0f} min ({steps_desc})"
+
+
+def decode_polyline6(encoded: str) -> tuple[tuple[float, float], ...]:
+    """Decode a Google-encoded polyline with 1e-6 precision (Valhalla)."""
+    coordinates: list[tuple[float, float]] = []
+    index = 0
+    lat = lon = 0
+    total = len(encoded)
+    while index < total:
+        deltas: list[int] = []
+        for _ in range(2):
+            shift = 0
+            value = 0
+            while True:
+                byte = ord(encoded[index]) - 63
+                index += 1
+                value |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            deltas.append(-(value >> 1) - 1 if value & 1 else value >> 1)
+        lat += deltas[0]
+        lon += deltas[1]
+        coordinates.append((lon / 1e6, lat / 1e6))
+    return tuple(coordinates)
 
 
 class WalkingRouter(ABC):
@@ -113,6 +139,8 @@ class ValhallaWalkingRouter(WalkingRouter):
             ],
             "costing": _WALKING_COSTING,
             "directions_options": {"units": "kilometers"},
+            # Explicit so the response shape is stable across engine versions.
+            "shape_format": "polyline6",
             "id": "walking-adapter",
         }
         try:
@@ -171,7 +199,13 @@ def _parse_trip(trip: dict, provider: str) -> WalkPlan:
     """
     summary = trip["summary"]
     steps: list[WalkStep] = []
+    coordinates: list[tuple[float, float]] = []
     for leg in trip.get("legs", []):
+        shape = leg.get("shape")
+        if isinstance(shape, str) and shape:
+            for coord in decode_polyline6(shape):
+                if not coordinates or coord != coordinates[-1]:
+                    coordinates.append(coord)
         for maneuver in leg.get("maneuvers", []):
             street_names = maneuver.get("street_names") or []
             steps.append(
@@ -188,4 +222,5 @@ def _parse_trip(trip: dict, provider: str) -> WalkPlan:
         duration_s=float(summary["time"]),
         steps=tuple(steps),
         provider=provider,
+        coordinates=tuple(coordinates),
     )

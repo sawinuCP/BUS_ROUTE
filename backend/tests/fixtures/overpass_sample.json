@@ -31,11 +31,47 @@
       "lon": 79.8600
     },
     {
+      "type": "node",
+      "id": 100010,
+      "lat": 6.9330,
+      "lon": 79.8570
+    },
+    {
+      "type": "node",
+      "id": 100011,
+      "lat": 6.9290,
+      "lon": 79.8550
+    },
+    {
+      "type": "node",
+      "id": 100012,
+      "lat": 6.9250,
+      "lon": 79.8530
+    },
+    {
+      "type": "node",
+      "id": 100013,
+      "lat": 6.9210,
+      "lon": 79.8510
+    },
+    {
+      "type": "way",
+      "id": 300001,
+      "nodes": [100010, 100011, 100012]
+    },
+    {
+      "type": "way",
+      "id": 300002,
+      "nodes": [100012, 100013]
+    },
+    {
       "type": "relation",
       "id": 200001,
       "members": [
         { "type": "node", "ref": 100001, "role": "stop" },
-        { "type": "node", "ref": 100002, "role": "stop" }
+        { "type": "node", "ref": 100002, "role": "stop" },
+        { "type": "way", "ref": 300001, "role": "" },
+        { "type": "way", "ref": 300002, "role": "" }
       ],
       "tags": {
         "type": "route",

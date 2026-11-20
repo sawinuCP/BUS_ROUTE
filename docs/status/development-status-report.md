@@ -80,7 +80,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 3 in progress — work item 1 done (Valhalla PoC + walking adapter, ADR-0008 ratified) · next: shapes import + explicit transfer-path work (Phase 3 completion) · owner field walks pending (Phase 1 exit gate)**
+> **▸ CURRENT POSITION: Phase 3 complete in code (PoC + adapter + shapes + access points + 19 candidate transfer connectors) · remaining Phase 3 gate: owner field walks verifying pilot paths · Phase 4 next**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
@@ -101,10 +101,10 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 1.3 First adapter + QA report | ✅ Done | `3f36d01` | OSM/Overpass adapter (ODbL registered); variant grouping; ordered calls; QA reports; rights register | **46/46 tests**; **live ingest: 230 records → 176 added / 54 failed**; QA report committed |
 | 1.4 Coverage scorecard + field-verification workflow | ✅ Done | `5d31006` | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
 | 2 Place search + local names + map | ✅ Done* | (this phase) | Trigram search over aliases (en/si/ta) + canonical names; `GET /places/search`, `GET /stops?bbox=`, reverse-geocode adapter (none configured — honest); mobile search UI + manual-coordinate fallback; migration `0005` | **60/60 backend** · **11/11 mobile** · live: 'pettah' → stop hit, '176' → route hit, bbox → 54 stops; *MapLibre screen pending device spike* |
-| **3 — Pedestrian routing & transfer graph** | 🔄 In progress | (this phase) | Work item 1: Valhalla PoC on full-SL OSM extract (126 MB tiles, ~9 min build, 52–260 ms warm latency) + walking adapter (`/api/v1/walking/route`) + **ADR-0008 ratified** | **66/66 backend** (6 new adapter tests); live: Fort→Bambalapitiya 5,418 m / 16 steps via adapter; items 2–4 remain (shapes, transfer legs) |
+| **3 — Pedestrian routing & transfer graph** | ✅ Done* | (this phase) | Valhalla PoC + **ADR-0008 ratified**; walking adapter (`/api/v1/walking/route`); **route shapes imported for 41/45 patterns** (101 Moratuwa→Fort = 21.1 km ✓); 432 stop access points; **19 candidate transfer connectors** routed through the walking engine (51–434 m, avg 234 m) | **75/75 backend** (9 new tests); live: real reparse + candidate generation; *exit gate needs field-checked pilot paths (owner walks)* |
 | 4 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **66 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
+**Current quality gate totals:** backend `pytest` **75 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
 
 ---
 
@@ -210,6 +210,13 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **ADR-0008 ratified by owner** (D-10): Valhalla **3.5.1 pinned** as the MVP walking engine; GraphHopper PoC deliberately skipped; re-evaluation triggers recorded (field-walk quality findings, footprint, engine drift).
 - **Compose**: `valhalla` service added (pinned image, port 8002, tile data under gitignored `data/osm`); backend gets `VALHALLA_BASE_URL=http://valhalla:8002`. Reproducible build script: `backend/scripts/build_valhalla_tiles.py`.
 
+### Phase 3 — items 2–3: route shapes, access points, candidate transfers (2026-11-20)
+
+- **Route shapes imported** (adapter 0.2.0): the Overpass query already recursed into member ways/nodes, so the adapter now assembles each pattern's geometry from its member ways in order (consecutive duplicates removed; missing nodes counted, **never interpolated**). `ShapeUpsert` stores `route_shapes` MULTILINESTRING rows and links `route_patterns.shape_id`; re-runs are idempotent (normalised-WKT change detection). Live result: **41/45 patterns have shapes** — 101 Moratuwa→Fort = **21,098 m** and 154 Kiribathgoda→Angulana = **18,794 m** (both match reality); the 112 km outlier is a truncated island-wide relation, flagged in QA (4 patterns without shape = info).
+- **Stop access points imported**: one per named stop at its mapped node (`unverified`, no invented type/name — the physical roadside position is unknown until field-checked). 432 rows. These anchor access/egress walking and the transfer graph.
+- **Candidate transfer connectors generated** (`backend/app/modules/transfers/service.py` + script): proximity *proposals* (≤300 m, both stops served by ≥1 pattern, **no shared pattern**) routed through the walking engine into `transfer_connections` with real distance/duration/geometry — **19 candidates committed (51–434 m, avg 234 m), all `unverified`**, provenance recorded on a derived data source `walking-engine-derived` (ODbL-derived). Rule honored: proximity proposes; a *routed pedestrian path* is the explicit connector; only the moderation/field flow can verify or promote anything (data model doc §3).
+- **Overpass was down** during the live import (both primary and mirror; I-23): the honest fallback was `reparse_latest_snapshot.py` — the **archived checksum-verified snapshot** re-parsed with adapter 0.2.0 into candidate version `osm-overpass-1679d061` (1083 records: 473 added / 573 unchanged / 37 failed — same unresolved records as always), recorded as a dedicated SyncRun with `parser_version='0.2.0-reparse'` and a validation-summary reparse note. Provenance exact: every new fact links to the same archived bytes it was parsed from.
+
 
 
 
@@ -249,6 +256,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | I-20 | 2026-11-20 | 2.1 | A native Windows PostgreSQL 15 service (auto-start) shares host port 5432 with the Docker DB → loopback connections nondeterministically hit the wrong server; host-side pytest auth failed | Host gates unreliable; would break again at every reboot | Docker `db` republished as **5433:5432**; settings default `DATABASE_URL` → `localhost:5433` (compose in-container override unchanged); `.env`/docs updated | netstat (two 5432 listeners); asyncpg auth error; pytest 60/60 after fix |
 | I-21 | 2026-11-20 | 2.1 | **I-18's fix was incomplete**: the session fixture *created* `journey_planner_test`, but Alembic's `env.py` and the cleanup fixture still resolved `get_settings().database_url` = **dev DB** → the Phase-2.1 pytest run wiped the dev pilot (0 stops) | Dev data destroyed; test isolation claim was false | conftest now sets `DATABASE_URL=…journey_planner_test` at **conftest-import time** (before any app/alembic code resolves settings) so migration + cleanup + app-under-test all target the test DB; dev data re-ingested from the pipeline (`osm-overpass-1679d061`, 610/573/37) | pytest 60/60 **and dev stops still 432 after the run** (decisive check) |
 | I-22 | 2026-11-20 | 3 | Valhalla Docker image `latest` (3.6.x) crashed during the walking-engine PoC: worker threads threw C++ exceptions (`terminate called recursively`), the service segfaulted (exit 139) on route requests, and the failed engine coincided with the local Docker engine returning API 500s (Docker Desktop restart needed) | PoC blocked; dev stack briefly down | Engine **pinned to `3.5.1`** (compose + build script); config regenerated with the *same* version's `valhalla_build_config` (a 3.6.x-generated config is missing keys 3.5.1 expects, e.g. `service_limits.tile.max_matrix_distance`); PowerShell `>` redirection writes UTF-16 — script writes config bytes directly (UTF-8, cf. I-17) | `valhalla_build_tiles`/`build_extract` exit 0; `/status` 200; 4/4 PoC routes; Docker Desktop restarted; core stack (db/redis/backend) auto-recovered healthy |
+| I-23 | 2026-11-20 | 3 | Overpass fully unavailable during the Phase 3 live import (primary URLError after 43 s, kumi mirror timeout after 111 s; three sync attempts failed) — shapes/access points could not be fetched live | New entities missing from dev DB until resolved | `backend/scripts/reparse_latest_snapshot.py`: the **latest archived checksum-verified snapshot** was re-parsed with adapter 0.2.0 into the existing candidate version (`osm-overpass-1679d061`), recorded as its own SyncRun (`parser_version='0.2.0-reparse'`) + validation-summary reparse note; failed live syncs left the previous data serving (plan §5.2 rule 3 held) | `reparse: in=1083 added=473 unchanged=573 failed=37`; 41 shapes / 432 access points present; 101 = 21.1 km reality-check |
 
 ---
 
@@ -278,6 +286,13 @@ curl http://localhost:8002/status                          # → {"version":"3.5
 curl "http://localhost:8000/api/v1/walking/route?lon_from=79.8489576&lat_from=6.9343064&lon_to=79.8555889&lat_to=6.893302"
 #   → {"status":"ok","distance_m":5418.0,"duration_s":3828.9,"steps":[16 steps]}
 
+# 2c. Shapes + access points + transfer candidates (Phase 3)
+python scripts/resync_overpass.py        # live fetch (fails honestly when Overpass is down, I-23)
+python scripts/reparse_latest_snapshot.py # fallback: reparse the archived checksum-verified snapshot
+python scripts/write_qa_report.py        # regenerate the committed QA report
+python scripts/generate_transfer_candidates.py [--dry-run] [--radius-m 300]
+#   → proposal-only transfer connectors (unverified) via the walking engine
+
 # 3. Mobile gates (from apps/mobile/)
 cd apps/mobile; npm ci
 npm run lint        # → 0 problems
@@ -297,6 +312,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: Phase 2.1 live verification — WP ingest `osm-overpass-1679d061` (610/573/37, primary 504 → retry OK); `?q=pasyala` → 2 stops (lat 7.169, Gampaha); `?q=negombo` → 2 hits; `GET /stops?bbox=79.95,7.05,80.05,7.20` → 3 stops; QA report `backend/data/validation_reports/osm-overpass-1679d061.md`. I-21 proof: full pytest (60/60) → dev DB still 432 stops / 1 source.
 - 2026-11-20: Field-kit refresh — exports regenerated for WP (`data/field-verification/exports/`: 432 stops → 57 tier-A / 375 tier-B; 45 patterns; 0 transfers); XLSForm built (`forms/stop_verification.xlsx`, openpyxl read-back verified: survey 17 rows, choices 12 rows); backend gates 60/60, dev DB intact after run.
 - 2026-11-20: Phase 3 work item 1 — Valhalla tiles built from the SL snapshot (~9 min, exit 0; 125.9 MB extract); 4/4 PoC routes between real pilot stops succeeded (Fort→Bambalapitiya 5.42 km/16 maneuvers; warm latency 52–260 ms); `GET /api/v1/walking/route` live through the backend adapter (status ok, 5,418 m, 16 steps); backend gates **66/66**, mypy/ruff/format clean; evidence in `docs/evidence/valhalla-poc-2026-11-20.md` (+ committed sample JSON); ADR-0008 ratified (D-10).
+- 2026-11-20: Phase 3 items 2–3 — three live Overpass fetch attempts failed (I-23); **archived snapshot reparse** imported adapter 0.2.0 output into `osm-overpass-1679d061`: **41 route shapes** (101 = 21,098 m, 154 = 18,794 m — reality-checked), **432 stop access points**, 473 added / 573 unchanged / 37 failed (unchanged failure set). `generate_transfer_candidates.py` routed **19 candidate connectors** through the real Valhalla service (51–434 m, avg 234 m, all unverified, none straight-line). QA report regenerated (committed); backend gates **75/75**, mypy/ruff/format clean; dev DB still 432 stops / 1 OSM source + 1 derived source.
 
 ---
 
@@ -351,8 +367,9 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 **Phase 3 — Pedestrian routing and transfer graph:**
 - [x] Valhalla proof of concept on Sri Lankan OSM pedestrian data → **ADR-0008 ratified** (D-10; GraphHopper comparison deliberately skipped, triggers recorded)
 - [x] Walking-router adapter (vendor-agnostic contract, no-path honesty, bounded failure) + `GET /api/v1/walking/route` live-verified
-- [ ] Access/egress/transfer walks as explicit legs; verified transfer connector overrides
-- [ ] Route shapes import from OSM ways (deferred from 1.3)
+- [x] Route shapes import from OSM ways — 41/45 patterns have geometry (4 truncated relations flagged; shapes stay `unverified`)
+- [x] Access/egress/transfer walks as explicit legs — 432 default access points + **19 candidate transfer connectors** routed through the walking engine (`unverified`; proximity proposes, a routed path is the connector, only field walks verify)
+- [ ] **Owner field walks** verifying pilot transfer paths and access points (shared with the Phase 1 exit gate) — this is the remaining Phase 3 exit criterion
 
 **Phase 4 — Deterministic multimodal planner:**
 - [ ] Graph interfaces over route patterns + explicit transfers; direct/multi-leg candidate generation
@@ -375,8 +392,9 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - The only ingested source is **OpenStreetMap via Overpass** (ODbL), bbox = **Western Province** (`6.60,79.75,7.30,80.25`, D-8) — **candidate version `osm-overpass-1679d061`, not published**.
 - Every imported fact carries `verification_status = 'unverified'`. No timetable, live-availability, fare, or accessibility claims exist or may be made.
 - Coverage figures (**432 stops / 38 routes / 45 patterns**) describe **imported data within the bbox**, not service reality; OSM does not guarantee operational status or complete sequences.
+- Phase 3 additions (all `unverified`): **41 route shapes** from OSM member ways (4 patterns lack geometry — truncated island-wide relations; one shape spans 112 km for that reason and must not be trusted as a service path until checked), **432 default stop access points** located at the mapped stop nodes (the real roadside position is unknown), and **19 candidate transfer connectors** with routed walking paths (never straight-line estimates; never auto-verified).
 - Known data gaps (recorded in the committed QA report `backend/data/validation_reports/osm-overpass-1679d061.md`): patterns with unresolvable stop calls, no agency attributions, no shapes, no transfer connectors, no verified anything — all awaiting field verification (D-3) and/or additional sources. 37 unresolved records include WP-edge members and long-distance relations whose member geometry extends island-wide.
 
 ---
 
-*End of report. Next update: Phase 3 completion (shapes import + explicit transfer-path work).*
+*End of report. Next update: Phase 4 (deterministic multimodal planner) start, or after the owner field walks.*

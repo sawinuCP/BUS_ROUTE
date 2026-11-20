@@ -58,6 +58,19 @@ def _required_place_fields(record: RawRecord) -> list[str]:
     return [f"missing required field '{key}'" for key in missing]
 
 
+def _required_shape_fields(record: RawRecord) -> list[str]:
+    if record.entity_hint != "route_shape":
+        return []
+    payload = record.payload
+    errors: list[str] = []
+    missing = [key for key in ("pattern_external_ref", "coordinates") if not payload.get(key)]
+    errors.extend(f"missing required field '{key}'" for key in missing)
+    coordinates = payload.get("coordinates")
+    if isinstance(coordinates, list) and len(coordinates) < 2:
+        errors.append(f"shape has {len(coordinates)} point(s); at least 2 required")
+    return errors
+
+
 def _coordinate_bounds(record: RawRecord) -> list[str]:
     payload = record.payload
     lon = payload.get("lon")
@@ -72,6 +85,24 @@ def _coordinate_bounds(record: RawRecord) -> list[str]:
     return errors
 
 
+def _shape_bounds(record: RawRecord) -> list[str]:
+    """Every shape coordinate must fall inside Sri Lanka (with a margin)."""
+    if record.entity_hint != "route_shape":
+        return []
+    coordinates = record.payload.get("coordinates")
+    if not isinstance(coordinates, list):
+        return []
+    for lon, lat in coordinates:
+        if (
+            not isinstance(lon, int | float)
+            or not SRILANKA_MIN_LON <= lon <= SRILANKA_MAX_LON
+            or not isinstance(lat, int | float)
+            or not SRILANKA_MIN_LAT <= lat <= SRILANKA_MAX_LAT
+        ):
+            return [f"shape coordinate ({lon!r}, {lat!r}) outside Sri Lanka bounds"]
+    return []
+
+
 def _mode_value(record: RawRecord) -> list[str]:
     mode = record.payload.get("mode")
     if mode is not None and mode not in ("bus", "rail"):
@@ -83,7 +114,9 @@ BUILTIN_RULES: tuple[RuleFunction, ...] = (
     _required_stop_fields,
     _required_route_fields,
     _required_place_fields,
+    _required_shape_fields,
     _coordinate_bounds,
+    _shape_bounds,
     _mode_value,
 )
 

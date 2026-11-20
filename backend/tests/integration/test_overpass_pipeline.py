@@ -50,9 +50,10 @@ async def test_overpass_pipeline_creates_ordered_variants(
     outcome = await service.run_sync(db_session, source, StubOverpassAdapter("synthetic"))
 
     # 2 named stops + 2 routes (refs 100, 101) + 3 patterns + 6 ordered calls
-    # = 13 records; one call is unresolved (its stop node has no data).
+    # + 1 shape (relation 200001's ways) + 2 access points = 16 records; one
+    # call is unresolved (its stop node has no data).
     assert outcome.status == "succeeded"
-    assert outcome.records_in == 13
+    assert outcome.records_in == 16
     assert outcome.records_failed == 1  # osm-node/100003 has no stop data — honest failure
 
     stops = await db_session.execute(text("SELECT count(*) FROM stops"))
@@ -68,6 +69,18 @@ async def test_overpass_pipeline_creates_ordered_variants(
 
     calls = await db_session.execute(text("SELECT count(*) FROM route_pattern_stops"))
     assert calls.scalar_one() == 5  # the unresolved member ref is excluded, not guessed
+
+    shapes = await db_session.execute(
+        text(
+            "SELECT count(*) FROM route_shapes rs"
+            " JOIN route_patterns rp ON rp.shape_id = rs.id"
+            " WHERE rp.pattern_code = 'r200001'"
+        )
+    )
+    assert shapes.scalar_one() == 1  # the variant with mapped ways got its geometry
+
+    access_points = await db_session.execute(text("SELECT count(*) FROM stop_access_points"))
+    assert access_points.scalar_one() == 2  # one default access point per named stop
 
     aliases = await db_session.execute(
         text("SELECT count(*) FROM entity_aliases WHERE language = 'si'")
@@ -102,6 +115,8 @@ async def test_overpass_pipeline_creates_ordered_variants(
     ).scalar_one()
     report = await QualityReportService().build(db_session, version_id)
     assert report["coverage"]["route_patterns"] == 3
+    assert report["coverage"]["patterns_with_shape"] == 1
+    assert report["coverage"]["stop_access_points"] == 2
     assert report["coverage"]["aliases_by_language"].get("si") == 1
     no_calls_check = next(
         check

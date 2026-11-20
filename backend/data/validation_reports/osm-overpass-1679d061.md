@@ -1,6 +1,6 @@
 # Data-quality report — osm-overpass-1679d061
 
-*Generated:* 2026-11-20T10:12:43.027376+00:00  
+*Generated:* 2026-11-20T15:04:50.814550+00:00  
 *Version status:* `candidate`
 
 ## Caveats
@@ -16,14 +16,16 @@
 | route | 38 |
 | route_pattern | 45 |
 | route_pattern_stop | 58 |
+| route_shape | 41 |
 | stop | 432 |
+| stop_access_point | 432 |
 
 ## Coverage
 
-- Stops: 432 (432 with coordinates)
-- Routes: 38; patterns: 45; ordered calls: 58
+- Stops: 432 (432 with coordinates); stop access points: 432
+- Routes: 38; patterns: 45; ordered calls: 58; patterns with a shape: 41 (41 shape geometries)
 - Aliases by language: si: 2
-- Transfer connections: 0
+- Transfer connections: 19
 - Places: 0
 
 ## Checks
@@ -34,4 +36,4 @@
 | patterns with no stop calls at all | 36 | warning | usually unresolved member references at ingestion |
 | routes without an agency attribution | 38 | info | OSM relations rarely carry operator data; field-verify |
 | stops without coordinates | 0 | pass | coordinates unknown until resolved/verified |
-| patterns without geometry (shape) | 45 | info | shapes not imported in this phase |
+| patterns without geometry (shape) | 4 | info | truncated relations or members without way geometry; field-verify |

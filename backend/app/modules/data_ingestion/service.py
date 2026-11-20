@@ -41,7 +41,9 @@ from app.modules.places.models import EntityAlias, Place
 from app.modules.transport.models import (
     RoutePattern,
     RoutePatternStop,
+    RouteShape,
     Stop,
+    StopAccessPoint,
     TransportAgency,
     TransportRoute,
 )
@@ -436,12 +438,156 @@ class PatternStopUpsert(EntityUpsert):
         return UpsertResult(self.entity_type, call.id, "added")
 
 
+class ShapeUpsert(EntityUpsert):
+    """A route pattern's geometry from OSM member ways; links pattern → shape.
+
+    The shape itself is a new canonical row (its identity is the SourceRecord
+    link `osm-relation/<id>/shape`); the pattern's `shape_id` points at it.
+    Gaps are preserved honestly: coordinates missing from the snapshot are not
+    interpolated, and the pattern keeps whatever geometry was recoverable.
+    """
+
+    entity_type = "route_shape"
+
+    async def upsert(
+        self, session: AsyncSession, source: DataSource, snapshot_id: uuid.UUID, record: RawRecord
+    ) -> UpsertResult:
+        payload = record.payload
+        pattern_link = await _find_canonical_link(
+            session, source.id, payload["pattern_external_ref"], "route_pattern"
+        )
+        if pattern_link is None or pattern_link.canonical_entity_id is None:
+            # Unresolvable references are recorded as failed records and surface
+            # in the quality report — never guessed.
+            raise ValueError(f"unresolved reference: pattern '{payload['pattern_external_ref']}'")
+
+        coordinates = payload["coordinates"]
+        line = ", ".join(f"{lon} {lat}" for lon, lat in coordinates)
+        wkt = f"MULTILINESTRING(({line}))"
+        pattern_id = pattern_link.canonical_entity_id
+
+        link = await _find_canonical_link(session, source.id, record.external_id, self.entity_type)
+        if link is not None and link.canonical_entity_id is not None:
+            shape = await session.get(RouteShape, link.canonical_entity_id)
+            if shape is None:
+                raise ValueError(f"linked shape {link.canonical_entity_id} no longer exists")
+            stored_wkt = await _stored_shape_wkt(session, shape.id)
+            # Both sides normalised the same way (whitespace stripped) so an
+            # unchanged coordinate list reports `unchanged`, not `updated`.
+            changed = stored_wkt != wkt.replace(" ", "")
+            if changed:
+                shape.geometry = wkt
+            await session.flush()
+            await _link_pattern_shape(session, pattern_id, shape.id)
+            return UpsertResult(self.entity_type, shape.id, "updated" if changed else "unchanged")
+
+        shape = RouteShape(data_source_id=source.id, geometry=wkt)
+        session.add(shape)
+        await session.flush()
+        session.add(
+            SourceRecord(
+                data_source_id=source.id,
+                snapshot_id=snapshot_id,
+                external_id=record.external_id,
+                entity_hint=record.entity_hint,
+                canonical_entity_type=self.entity_type,
+                canonical_entity_id=shape.id,
+                raw_payload=record.payload,
+            )
+        )
+        await _link_pattern_shape(session, pattern_id, shape.id)
+        return UpsertResult(self.entity_type, shape.id, "added")
+
+
+async def _stored_shape_wkt(session: AsyncSession, shape_id: uuid.UUID) -> str | None:
+    """Canonical stored shape geometry as normalised WKT, for change detection."""
+    row = await session.execute(
+        text("SELECT ST_AsText(geometry::geometry) FROM route_shapes WHERE id = :i"),
+        {"i": shape_id},
+    )
+    value = row.scalar_one_or_none()
+    if value is None:
+        return None
+    # ST_AsText normalises floats; compare with whitespace stripped so our
+    # generated WKT and the stored text agree on identical coordinates.
+    return str(value).replace(" ", "")
+
+
+async def _link_pattern_shape(
+    session: AsyncSession, pattern_id: uuid.UUID, shape_id: uuid.UUID
+) -> None:
+    pattern = await session.get(RoutePattern, pattern_id)
+    if pattern is None:
+        raise ValueError(f"pattern {pattern_id} no longer exists")
+    if pattern.shape_id != shape_id:
+        pattern.shape_id = shape_id
+        await session.flush()
+
+
+class AccessPointUpsert(EntityUpsert):
+    """A stop's default boarding/alighting access point at the mapped node.
+
+    The physical roadside position/type is unknown until field-checked, so the
+    row carries only the mapped coordinate and honest nulls elsewhere. It gives
+    access/egress walking and the transfer graph their canonical endpoints.
+    """
+
+    entity_type = "stop_access_point"
+
+    async def upsert(
+        self, session: AsyncSession, source: DataSource, snapshot_id: uuid.UUID, record: RawRecord
+    ) -> UpsertResult:
+        payload = record.payload
+        stop_link = await _find_canonical_link(
+            session, source.id, payload["stop_external_ref"], "stop"
+        )
+        if stop_link is None or stop_link.canonical_entity_id is None:
+            # Unresolvable references are recorded as failed records and surface
+            # in the quality report — never guessed.
+            raise ValueError(f"unresolved reference: stop '{payload['stop_external_ref']}'")
+        stop_id = stop_link.canonical_entity_id
+        location = f"POINT({payload['lon']} {payload['lat']})"
+
+        link = await _find_canonical_link(session, source.id, record.external_id, self.entity_type)
+        if link is not None and link.canonical_entity_id is not None:
+            access_point = await session.get(StopAccessPoint, link.canonical_entity_id)
+            if access_point is None:
+                raise ValueError(f"linked access point {link.canonical_entity_id} no longer exists")
+            stored = await _stored_point_wkt(session, "stop_access_points", access_point.id)
+            changed = access_point.stop_id != stop_id or stored != location
+            access_point.stop_id = stop_id
+            if stored != location:
+                access_point.location = location
+            await session.flush()
+            return UpsertResult(
+                self.entity_type, access_point.id, "updated" if changed else "unchanged"
+            )
+
+        access_point = StopAccessPoint(stop_id=stop_id, location=location)
+        session.add(access_point)
+        await session.flush()
+        session.add(
+            SourceRecord(
+                data_source_id=source.id,
+                snapshot_id=snapshot_id,
+                external_id=record.external_id,
+                entity_hint=record.entity_hint,
+                canonical_entity_type=self.entity_type,
+                canonical_entity_id=access_point.id,
+                raw_payload=record.payload,
+            )
+        )
+        return UpsertResult(self.entity_type, access_point.id, "added")
+
+
 UPSERTERS: dict[str, EntityUpsert] = {
     StopUpsert.entity_type: StopUpsert(),
     RouteUpsert.entity_type: RouteUpsert(),
     PlaceUpsert.entity_type: PlaceUpsert(),
     PatternUpsert.entity_type: PatternUpsert(),
     PatternStopUpsert.entity_type: PatternStopUpsert(),
+    ShapeUpsert.entity_type: ShapeUpsert(),
+    AccessPointUpsert.entity_type: AccessPointUpsert(),
 }
 
 

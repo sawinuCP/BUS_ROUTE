@@ -9,7 +9,13 @@ bbox from the public Overpass API and parses them into normalised records:
   sharing a ref are variants, not separate routes;
 - one `route_pattern` record per relation (the ordered variant/direction);
 - ordered `route_pattern_stop` records with boarding/alighting eligibility
-  derived from OSM member roles (stop / stop_entry_only / stop_exit_only).
+  derived from OSM member roles (stop / stop_entry_only / stop_exit_only);
+- one `route_shape` record per relation: the member ways' node geometry in
+  member order (Phase 3 shapes import); patterns with unusable geometry are
+  reported as diagnostics, never interpolated;
+- one `stop_access_point` record per named stop, located at the stop node
+  itself (the physical roadside position is unknown until field-checked) —
+  anchors access/egress and the transfer graph (Phase 3).
 
 Licence: ODbL 1.0 (see `data/source-rights-register.md` and
 `docs/product/07_DATA_SOURCES_AND_ACQUISITION.md`). Attribution obligations
@@ -59,7 +65,7 @@ class OverpassAdapter(SourceAdapter):
         endpoint: str = "https://overpass-api.de/api/interpreter",
         fallback_endpoint: str | None = None,
         timeout_seconds: int = 300,
-        adapter_version: str = "0.1.0",
+        adapter_version: str = "0.2.0",
     ) -> None:
         self._bbox = bbox
         self._endpoint = endpoint
@@ -107,7 +113,18 @@ class OverpassAdapter(SourceAdapter):
         document = json.loads(content.decode("utf-8"))
         elements: list[dict[str, Any]] = document.get("elements", [])
 
+        # Coordinate index for shape assembly: the Overpass query recurses
+        # (`>; out skel qt;`), so every member node arrives with coordinates.
+        node_coords: dict[int, tuple[float, float]] = {}
+        way_nodes: dict[int, list[int]] = {}
+        for element in elements:
+            if element.get("type") == "node" and "lat" in element and "lon" in element:
+                node_coords[element["id"]] = (element["lon"], element["lat"])
+            elif element.get("type") == "way":
+                way_nodes[element["id"]] = list(element.get("nodes", []))
+
         stop_records: list[RawRecord] = []
+        access_point_records: list[RawRecord] = []
         skipped_unnamed = 0
         relations: list[dict[str, Any]] = []
 
@@ -139,6 +156,21 @@ class OverpassAdapter(SourceAdapter):
                         },
                     )
                 )
+                # Default access point at the stop node itself: the *physical*
+                # roadside position is unknown until field-checked, so the
+                # access point carries no invented type/name — it anchors the
+                # transfer graph to the stop's own mapped location.
+                access_point_records.append(
+                    RawRecord(
+                        external_id=f"osm-node/{element['id']}/access-point",
+                        entity_hint="stop_access_point",
+                        payload={
+                            "stop_external_ref": f"osm-node/{element['id']}",
+                            "lon": element["lon"],
+                            "lat": element["lat"],
+                        },
+                    )
+                )
             elif element.get("type") == "relation":
                 tags = element.get("tags") or {}
                 if tags.get("type") == "route" and tags.get("route") == "bus" and tags.get("ref"):
@@ -151,6 +183,7 @@ class OverpassAdapter(SourceAdapter):
         route_records: list[RawRecord] = []
         pattern_records: list[RawRecord] = []
         pattern_stop_records: list[RawRecord] = []
+        shape_records: list[RawRecord] = []
 
         seen_refs: set[str] = set()
         for relation in relations:
@@ -200,7 +233,52 @@ class OverpassAdapter(SourceAdapter):
                     )
                 )
 
-        records = stop_records + route_records + pattern_records + pattern_stop_records
+            # Route shape: concatenate the member ways' node geometry in member
+            # order (deduplicating consecutive shared points). Members whose
+            # nodes are missing from the response (truncated relations) are
+            # skipped and counted — gaps are reported, never interpolated.
+            coordinates: list[list[float]] = []
+            missing_way_nodes = 0
+            for member in relation.get("members", []):
+                if member.get("type") != "way":
+                    continue
+                for node_ref in way_nodes.get(member["ref"], []):
+                    coord = node_coords.get(node_ref)
+                    if coord is None:
+                        missing_way_nodes += 1
+                        continue
+                    point = [coord[0], coord[1]]
+                    if not coordinates or point != coordinates[-1]:
+                        coordinates.append(point)
+            if len(coordinates) >= 2:
+                shape_records.append(
+                    RawRecord(
+                        external_id=f"{relation_external_id}/shape",
+                        entity_hint="route_shape",
+                        payload={
+                            "pattern_external_ref": relation_external_id,
+                            "coordinates": coordinates,
+                            "missing_way_nodes": missing_way_nodes,
+                        },
+                    )
+                )
+                if missing_way_nodes:
+                    metadata.setdefault("osm", {}).setdefault("shapes_with_missing_nodes", {})[
+                        relation_external_id
+                    ] = missing_way_nodes
+            else:
+                metadata.setdefault("osm", {}).setdefault("patterns_without_shape", []).append(
+                    relation_external_id
+                )
+
+        records = (
+            stop_records
+            + route_records
+            + pattern_records
+            + pattern_stop_records
+            + shape_records
+            + access_point_records
+        )
         if skipped_unnamed:
             # Diagnostics surface in QA review; unnamed stops are excluded rather
             # than given invented names.

@@ -1,6 +1,6 @@
 {
   "report_type": "data_quality_report",
-  "generated_at": "2026-11-20T10:12:43.027376+00:00",
+  "generated_at": "2026-11-20T15:04:50.814550+00:00",
   "dataset_version": {
     "id": "b1966813-182a-4173-bc57-1cd5fe1ad5d6",
     "label": "osm-overpass-1679d061",
@@ -17,7 +17,9 @@
     "route": 38,
     "route_pattern": 45,
     "route_pattern_stop": 58,
-    "stop": 432
+    "route_shape": 41,
+    "stop": 432,
+    "stop_access_point": 432
   },
   "coverage": {
     "stops": {
@@ -27,13 +29,16 @@
     "stop_verification_status": {
       "unverified": 432
     },
+    "stop_access_points": 432,
     "routes": 38,
     "route_patterns": 45,
     "route_pattern_stops": 58,
+    "patterns_with_shape": 41,
+    "route_shapes": 41,
     "aliases_by_language": {
       "si": 2
     },
-    "transfer_connections": 0,
+    "transfer_connections": 19,
     "places": 0
   },
   "checks": [
@@ -63,9 +68,9 @@
     },
     {
       "check": "patterns without geometry (shape)",
-      "count": 45,
+      "count": 4,
       "severity": "info",
-      "note": "shapes not imported in this phase"
+      "note": "truncated relations or members without way geometry; field-verify"
     }
   ]
 }
