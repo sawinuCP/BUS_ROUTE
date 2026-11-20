@@ -79,7 +79,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 2.1 complete (coverage widened + map prepared + infra hardened) · next: Phase 3 (owner go-ahead)**
+> **▸ CURRENT POSITION: Phase 1 field-kit refresh complete (WP-scale walk plan) · next: owner field walks → Phase 3 (owner go-ahead)**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
@@ -193,6 +193,15 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **I-21 (test isolation, critical)**: I-18's test-DB fix was incomplete — Alembic `env.py` and the cleanup fixture still resolved the dev URL, so this session's first full pytest run **wiped the dev pilot**. Fixed by pinning `DATABASE_URL` to `journey_planner_test` at conftest-import time. Dev data restored via the ingestion pipeline (idempotent upserts, archived source unchanged). Proven: 60/60 pytest **then** dev stops still 432, `data_sources` intact.
 
 
+### Field-kit refresh for the Western Province scale (2026-11-20, pre-Phase-3)
+
+- **Walking tiers added to the export** (`backend/scripts/export_field_surveys.py`): each stop now carries a `tier` — **A = called at by ≥1 route pattern** (routing-relevant) — and an `area` corridor label (6 zones) so the owner can plan walk days. Current export: **Tier A = 57 stops** (52 in the Colombo city core alone), Tier B = 375 (optional sweeps); QA queue now 78 items.
+- **Kobo-ready XLSForm**: `backend/scripts/build_kobo_form.py` (openpyxl added to requirements) builds `data/field-verification/forms/stop_verification.xlsx` directly from the versioned CSV sheets — the owner uploads one file, no manual Excel conversion. Form retitled "Western Province pilot", version bumped to 1.1.
+- **README rewritten as an owner walk plan** (`data/field-verification/README.md`): exact KoboToolbox account → upload → deploy → ODK Collect device steps; 3-day plan (Day 1: Colombo city core, 52 tier-A stops; Day 2: north/south-suburb remainder; Day 3: ride-along); **ride-along candidates identified from the data**: route **101** Moratuwa→Fort (23 resolved calls), route **154** Kiribathgoda→Angulana (20), then 141/138; import round-trip unchanged (`import_field_verifications.py`, dry-run first).
+- Exports regenerated against the WP dataset (432 stops / 45 patterns / 0 transfers). Nothing about the verification flow changed: submissions → `verification_records` → review → candidate version; nothing auto-publishes.
+
+
+
 ### Phase 1.3+ — Owner decisions and D-3 research (2026-11-20)
 
 
@@ -266,6 +275,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: Phase 1.4 live verification — re-ingest `osm-overpass-4e442b17` succeeded (230/176/54, deterministic); coverage scorecard **17 routes, average 23.0/100**; QA queue **35 items**; field-survey exports generated (**100 stops / 22 patterns / 0 transfers**); reports committed under `backend/data/validation_reports/`.
 - 2026-11-20: Phase 2 live verification — pilot re-ingested as `osm-overpass-3cf065d7` (230/176/54, after an Overpass outage was survived via mirror fallback); `GET /places/search?q=pettah` → 1 stop; `?q=176&types=route` → 1 route; `GET /stops?bbox=79.84,6.90,79.87,6.94` → **54 stops**; reverse-geocode honestly returns `provider: none`.
 - 2026-11-20: Phase 2.1 live verification — WP ingest `osm-overpass-1679d061` (610/573/37, primary 504 → retry OK); `?q=pasyala` → 2 stops (lat 7.169, Gampaha); `?q=negombo` → 2 hits; `GET /stops?bbox=79.95,7.05,80.05,7.20` → 3 stops; QA report `backend/data/validation_reports/osm-overpass-1679d061.md`. I-21 proof: full pytest (60/60) → dev DB still 432 stops / 1 source.
+- 2026-11-20: Field-kit refresh — exports regenerated for WP (`data/field-verification/exports/`: 432 stops → 57 tier-A / 375 tier-B; 45 patterns; 0 transfers); XLSForm built (`forms/stop_verification.xlsx`, openpyxl read-back verified: survey 17 rows, choices 12 rows); backend gates 60/60, dev DB intact after run.
 
 ---
 
@@ -304,7 +314,9 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [x] Owner decisions D-1/D-2 resolved (2026-11-20); D-3 adopted (three-tier approach)
 - [x] Phase 1.4 — coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API; field kit committed (`data/field-verification/`)
 - [x] Dedicated test database for integration tests (I-18, completed properly under I-21)
-- [ ] **Owner field walks** (2–3 days, per `data/field-verification/README.md`) — the Phase 1 exit gate's field-check item; deploy Kobo form, walk, import
+- [x] Field kit refreshed for the WP scale: tiered walk plan (57 tier-A stops), Kobo-ready XLSForm, owner walk-plan README (2026-11-20)
+- [ ] **Owner: create KoboToolbox account, upload `forms/stop_verification.xlsx`, deploy** (~30 min)
+- [ ] **Owner field walks** (Day 1: Colombo core 52 tier-A stops; Day 2: remainder; Day 3: ride-along on route 101/154) — then import submissions
 
 **Phase 2 — Place search, local names, map:**
 - [x] Place/alias search API (trigram; language-tagged); ambiguous-result handling (listed, never auto-selected)

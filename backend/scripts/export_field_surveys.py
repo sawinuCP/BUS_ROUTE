@@ -3,7 +3,11 @@
 Produces CSV inputs for the ODK/KoboToolbox verification forms (see
 `data/field-verification/README.md`):
 
-- stops_survey.csv        — our canonical stops to walk and confirm
+- stops_survey.csv        — our canonical stops to walk and confirm, with a
+                            walking `tier` (A = stop is called at by at least
+                            one route pattern, B = not referenced by any
+                            pattern) and an `area` corridor label so the owner
+                            can plan walk days.
 - patterns_ridecheck.csv  — ordered call lists for ride-along audits
 - transfers_check.csv     — candidate connectors to walk (usually empty today)
 
@@ -17,6 +21,7 @@ import argparse
 import asyncio
 import csv
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -25,6 +30,47 @@ from sqlalchemy import text  # noqa: E402
 
 from app.platform.db import get_session_factory  # noqa: E402
 
+_STOPS_QUERY = text(
+    """
+    SELECT
+        s.id,
+        s.name,
+        ST_Y(s.location::geometry) AS lat,
+        ST_X(s.location::geometry) AS lon,
+        s.stop_type,
+        s.verification_status,
+        CASE WHEN EXISTS (
+            SELECT 1 FROM route_pattern_stops rps WHERE rps.stop_id = s.id
+        ) THEN 'A' ELSE 'B' END AS tier,
+        CASE
+            WHEN ST_Y(s.location::geometry) >= 7.06
+                THEN 'Negombo–Gampaha corridor'
+            WHEN ST_Y(s.location::geometry) >= 6.97
+                THEN 'Colombo north & Kelaniya'
+            WHEN ST_X(s.location::geometry) >= 80.00
+                THEN 'Eastern inland (Kottawa–Homagama–Avissawella)'
+            WHEN ST_X(s.location::geometry) >= 79.92
+                THEN 'Colombo south suburbs (Nugegoda–Maharagama)'
+            WHEN ST_Y(s.location::geometry) >= 6.82
+                THEN 'Colombo city core'
+            ELSE 'Kalutara corridor'
+        END AS area
+    FROM stops s
+    WHERE s.location IS NOT NULL
+    ORDER BY area, tier, s.name
+    """
+)
+
+
+def _write_csv(path: Path, header: list[str], rows: list[tuple]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        for row in rows:
+            writer.writerow(
+                [str(value) if isinstance(value, (int, float)) else value for value in row]
+            )
+
 
 async def export_surveys(out_dir: Path) -> dict[str, int]:
     session = get_session_factory()()
@@ -32,23 +78,31 @@ async def export_surveys(out_dir: Path) -> dict[str, int]:
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        result = await session.execute(_STOPS_QUERY)
+        rows = result.all()
         stops_path = out_dir / "stops_survey.csv"
-        result = await session.execute(
-            text(
-                "SELECT id, name, ST_Y(location::geometry) AS lat,"
-                " ST_X(location::geometry) AS lon, stop_type, verification_status"
-                " FROM stops WHERE location IS NOT NULL ORDER BY name"
-            )
+        _write_csv(
+            stops_path,
+            [
+                "stop_id",
+                "canonical_name",
+                "lat",
+                "lon",
+                "stop_type",
+                "current_verification",
+                "tier",
+                "area",
+            ],
+            rows,
         )
-        with stops_path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(
-                ["stop_id", "canonical_name", "lat", "lon", "stop_type", "current_verification"]
-            )
-            rows = result.all()
-            for row in rows:
-                writer.writerow([str(row[0]), row[1], row[2], row[3], row[4] or "", row[5]])
-            counts["stops_survey"] = len(rows)
+        counts["stops_survey"] = len(rows)
+
+        tiers = Counter(row[6] for row in rows)
+        areas = Counter((row[7], row[6]) for row in rows)
+        for tier in ("A", "B"):
+            counts[f"tier_{tier}"] = tiers[tier]
+        for (area, tier), total in sorted(areas.items()):
+            counts[f"{area} (tier {tier})"] = total
 
         patterns_path = out_dir / "patterns_ridecheck.csv"
         result = await session.execute(
@@ -66,24 +120,20 @@ async def export_surveys(out_dir: Path) -> dict[str, int]:
                 " ORDER BY r.route_code, rp.pattern_code"
             )
         )
-        with patterns_path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(
-                [
-                    "pattern_id",
-                    "pattern_code",
-                    "route_code",
-                    "origin",
-                    "destination",
-                    "expected_calls",
-                ]
-            )
-            rows = result.all()
-            for row in rows:
-                writer.writerow(
-                    [str(row[0]), row[1] or "", row[2], row[3] or "", row[4] or "", row[5] or ""]
-                )
-            counts["patterns_ridecheck"] = len(rows)
+        rows = result.all()
+        _write_csv(
+            patterns_path,
+            [
+                "pattern_id",
+                "pattern_code",
+                "route_code",
+                "origin",
+                "destination",
+                "expected_calls",
+            ],
+            rows,
+        )
+        counts["patterns_ridecheck"] = len(rows)
 
         transfers_path = out_dir / "transfers_check.csv"
         result = await session.execute(
@@ -96,15 +146,19 @@ async def export_surveys(out_dir: Path) -> dict[str, int]:
                 " ORDER BY tc.id"
             )
         )
-        with transfers_path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(
-                ["transfer_id", "from_point", "to_point", "distance_m", "current_verification"]
-            )
-            rows = result.all()
-            for row in rows:
-                writer.writerow([str(row[0]), row[1] or "", row[2] or "", row[3] or "", row[4]])
-            counts["transfers_check"] = len(rows)
+        rows = result.all()
+        _write_csv(
+            transfers_path,
+            [
+                "transfer_id",
+                "from_point",
+                "to_point",
+                "distance_m",
+                "current_verification",
+            ],
+            rows,
+        )
+        counts["transfers_check"] = len(rows)
     finally:
         await session.close()
     return counts
