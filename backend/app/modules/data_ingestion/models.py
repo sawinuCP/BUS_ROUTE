@@ -148,9 +148,9 @@ class DatasetVersionEntity(Base, UuidPk):
     __tablename__ = "dataset_version_entities"
     __table_args__ = (
         CheckConstraint(
-            "entity_type IN ('agency','route','route_pattern','stop','stop_access_point',"
-            "'route_shape','transfer_connection','place','place_access_point','locality',"
-            "'entity_alias','fare_rule')",
+            "entity_type IN ('agency','route','route_pattern','route_pattern_stop','stop',"
+            "'stop_access_point','route_shape','transfer_connection','place',"
+            "'place_access_point','locality','entity_alias','fare_rule')",
             name="dve_entity_type",
         ),
         CheckConstraint("operation IN ('added','updated','removed')", name="dve_operation"),

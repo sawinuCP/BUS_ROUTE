@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     # object storage via the SnapshotArchive interface, ADR-0007).
     raw_archive_dir: str = "data/raw"
 
+    # Data-quality reports are written here (committed as evidence; not raw data).
+    validation_reports_dir: str = "data/validation_reports"
+
+    # Configurable pilot coverage boundary (Overpass bbox: south,west,north,east).
+    # Never hard-code geography in code; the pilot corridor is an owner decision.
+    pilot_bbox: str = "6.88,79.83,6.96,79.90"
+
+    # OSM Overpass endpoint (read-only public API; ODbL — see data source register).
+    osm_overpass_endpoint: str = "https://overpass-api.de/api/interpreter"
+
     cors_origins: list[str] = []
 
     @property

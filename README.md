@@ -80,6 +80,8 @@ See [architecture/README.md](architecture/README.md) for the full index (`00` Ex
 - ADR-0006 — Canonical schema, dataset-versioning strategy and PostGIS conventions
 - ADR-0007 — Ingestion framework: adapters, archive, idempotency, publish/rollback
 
+**Data:** source-rights register at [`data/source-rights-register.md`](data/source-rights-register.md); committed data-quality reports under `backend/data/validation_reports/`.
+
 ## How to use
 
 - Read the product vision first, then the architecture decision table.

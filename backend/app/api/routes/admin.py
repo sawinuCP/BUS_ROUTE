@@ -17,7 +17,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.modules.data_ingestion.adapters.file import FileSourceAdapter
+from app.modules.data_ingestion.adapters.overpass import OverpassAdapter
 from app.modules.data_ingestion.archive import LocalFilesystemArchive
+from app.modules.data_ingestion.report import QualityReportService
 from app.modules.data_ingestion.service import (
     DatasetVersionService,
     IngestionService,
@@ -51,8 +53,10 @@ class SourceOut(SourceCreate):
 
 
 class SyncRequest(BaseModel):
-    adapter: Literal["file"] = "file"
-    path: str = Field(min_length=1)
+    adapter: Literal["file", "overpass"] = "file"
+    # Required for the `file` adapter (path inside the backend container); the
+    # `overpass` adapter uses PILOT_BBOX / OSM_OVERPASS_ENDPOINT from settings.
+    path: str | None = None
 
 
 class SyncRunOut(BaseModel):
@@ -101,12 +105,20 @@ async def list_sources(session: SessionDep) -> Any:
 @router.post("/sources/{source_id}/sync")
 async def sync_source(source_id: uuid.UUID, body: SyncRequest, session: SessionDep) -> Any:
     source = await _registry.get_source(session, source_id)
-    if body.adapter != "file":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unknown adapter")
     settings = get_settings()
     service = IngestionService(archive=LocalFilesystemArchive(settings.raw_archive_dir))
     try:
-        adapter = FileSourceAdapter(body.path)
+        if body.adapter == "file":
+            if not body.path:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="path is required for the file adapter",
+                )
+            adapter: FileSourceAdapter | OverpassAdapter = FileSourceAdapter(body.path)
+        else:
+            adapter = OverpassAdapter(
+                bbox=settings.pilot_bbox, endpoint=settings.osm_overpass_endpoint
+            )
         outcome = await service.run_sync(session, source, adapter)
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -148,3 +160,18 @@ async def rollback_version(version_id: uuid.UUID, session: SessionDep) -> Any:
     version = await _versions.rollback(session, version_id)
     await session.commit()
     return version
+
+
+_reports = QualityReportService()
+
+
+@router.get("/dataset-versions/{version_id}/quality-report")
+async def get_quality_report(version_id: uuid.UUID, session: SessionDep) -> Any:
+    return await _reports.build(session, version_id)
+
+
+@router.post("/dataset-versions/{version_id}/quality-report/write")
+async def write_quality_report(version_id: uuid.UUID, session: SessionDep) -> Any:
+    paths = await _reports.write(session, version_id, get_settings().validation_reports_dir)
+    await session.commit()
+    return paths

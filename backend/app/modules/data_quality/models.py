@@ -42,9 +42,9 @@ class VerificationRecord(Base, UuidPk):
             name="verification_result",
         ),
         CheckConstraint(
-            "entity_type IN ('agency','route','route_pattern','stop','stop_access_point',"
-            "'route_shape','transfer_connection','place','place_access_point','locality',"
-            "'entity_alias','fare_rule')",
+            "entity_type IN ('agency','route','route_pattern','route_pattern_stop','stop',"
+            "'stop_access_point','route_shape','transfer_connection','place',"
+            "'place_access_point','locality','entity_alias','fare_rule')",
             name="verification_entity_type",
         ),
     )
@@ -75,9 +75,9 @@ class DataChangeAudit(Base, UuidPk):
             "operation IN ('create','update','deactivate','delete')", name="change_operation"
         ),
         CheckConstraint(
-            "entity_type IN ('agency','route','route_pattern','stop','stop_access_point',"
-            "'route_shape','transfer_connection','place','place_access_point','locality',"
-            "'entity_alias','fare_rule')",
+            "entity_type IN ('agency','route','route_pattern','route_pattern_stop','stop',"
+            "'stop_access_point','route_shape','transfer_connection','place',"
+            "'place_access_point','locality','entity_alias','fare_rule')",
             name="change_entity_type",
         ),
     )

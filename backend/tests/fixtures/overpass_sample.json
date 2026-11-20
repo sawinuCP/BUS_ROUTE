@@ -1,0 +1,79 @@
+{
+  "version": 0.6,
+  "generator": "synthetic-fixture-not-real-data",
+  "elements": [
+    {
+      "type": "node",
+      "id": 100001,
+      "lat": 6.9340,
+      "lon": 79.8580,
+      "tags": {
+        "highway": "bus_stop",
+        "name": "Pettah Terminal",
+        "name:si": "පෙට්ටා ස්ථානය"
+      }
+    },
+    {
+      "type": "node",
+      "id": 100002,
+      "lat": 6.9107,
+      "lon": 79.8483,
+      "tags": {
+        "highway": "bus_stop",
+        "name": "Kollupitiya Junction",
+        "name:ta": "கொள்ளுப்பிட்டி சந்தி"
+      }
+    },
+    {
+      "type": "node",
+      "id": 100003,
+      "lat": 6.9200,
+      "lon": 79.8600
+    },
+    {
+      "type": "relation",
+      "id": 200001,
+      "members": [
+        { "type": "node", "ref": 100001, "role": "stop" },
+        { "type": "node", "ref": 100002, "role": "stop" }
+      ],
+      "tags": {
+        "type": "route",
+        "route": "bus",
+        "ref": "100",
+        "name": "Route 100: Pettah → Kollupitiya",
+        "from": "Pettah",
+        "to": "Kollupitiya"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 200002,
+      "members": [
+        { "type": "node", "ref": 100001, "role": "stop" },
+        { "type": "node", "ref": 100003, "role": "stop" }
+      ],
+      "tags": {
+        "type": "route",
+        "route": "bus",
+        "ref": "100",
+        "name": "Route 100 short-working"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 200003,
+      "members": [
+        { "type": "node", "ref": 100002, "role": "stop_entry_only" },
+        { "type": "node", "ref": 100001, "role": "stop_exit_only" }
+      ],
+      "tags": {
+        "type": "route",
+        "route": "bus",
+        "ref": "101",
+        "from": "Kollupitiya",
+        "to": "Pettah"
+      }
+    }
+  ]
+}

@@ -38,7 +38,13 @@ from app.modules.data_ingestion.models import (
 )
 from app.modules.data_ingestion.quality import validate_records
 from app.modules.places.models import EntityAlias, Place
-from app.modules.transport.models import Stop, TransportAgency, TransportRoute
+from app.modules.transport.models import (
+    RoutePattern,
+    RoutePatternStop,
+    Stop,
+    TransportAgency,
+    TransportRoute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -298,10 +304,144 @@ class PlaceUpsert(EntityUpsert):
         return UpsertResult(self.entity_type, place.id, "added")
 
 
+class PatternUpsert(EntityUpsert):
+    """A route variant/direction; references its route via a source-record link."""
+
+    entity_type = "route_pattern"
+
+    async def upsert(
+        self, session: AsyncSession, source: DataSource, snapshot_id: uuid.UUID, record: RawRecord
+    ) -> UpsertResult:
+        payload = record.payload
+        route_link = await _find_canonical_link(
+            session, source.id, payload["route_external_ref"], "route"
+        )
+        if route_link is None or route_link.canonical_entity_id is None:
+            raise ValueError(
+                f"pattern {record.external_id} references route"
+                f" '{payload['route_external_ref']}' which has no canonical link yet"
+            )
+
+        link = await _find_canonical_link(session, source.id, record.external_id, self.entity_type)
+        fields = (
+            payload.get("pattern_code"),
+            int(payload.get("direction_id", 0)),
+            payload.get("origin_label"),
+            payload.get("destination_label"),
+            payload.get("variant_description"),
+        )
+        if link is not None and link.canonical_entity_id is not None:
+            pattern = await session.get(RoutePattern, link.canonical_entity_id)
+            if pattern is None:
+                raise ValueError(f"linked pattern {link.canonical_entity_id} no longer exists")
+            changed = (
+                pattern.route_id != route_link.canonical_entity_id
+                or pattern.pattern_code != fields[0]
+                or pattern.direction_id != fields[1]
+                or pattern.origin_label != fields[2]
+                or pattern.destination_label != fields[3]
+                or pattern.variant_description != fields[4]
+            )
+            pattern.route_id = route_link.canonical_entity_id
+            pattern.pattern_code = fields[0]
+            pattern.direction_id = fields[1]
+            pattern.origin_label = fields[2]
+            pattern.destination_label = fields[3]
+            pattern.variant_description = fields[4]
+            await session.flush()
+            return UpsertResult(self.entity_type, pattern.id, "updated" if changed else "unchanged")
+
+        pattern = RoutePattern(
+            route_id=route_link.canonical_entity_id,
+            pattern_code=fields[0],
+            direction_id=fields[1],
+            origin_label=fields[2],
+            destination_label=fields[3],
+            variant_description=fields[4],
+        )
+        session.add(pattern)
+        await session.flush()
+        session.add(
+            SourceRecord(
+                data_source_id=source.id,
+                snapshot_id=snapshot_id,
+                external_id=record.external_id,
+                entity_hint=record.entity_hint,
+                canonical_entity_type=self.entity_type,
+                canonical_entity_id=pattern.id,
+                raw_payload=record.payload,
+            )
+        )
+        return UpsertResult(self.entity_type, pattern.id, "added")
+
+
+class PatternStopUpsert(EntityUpsert):
+    """An ordered stop call; references pattern + stop via source-record links."""
+
+    entity_type = "route_pattern_stop"
+
+    async def upsert(
+        self, session: AsyncSession, source: DataSource, snapshot_id: uuid.UUID, record: RawRecord
+    ) -> UpsertResult:
+        payload = record.payload
+        pattern_link = await _find_canonical_link(
+            session, source.id, payload["pattern_external_ref"], "route_pattern"
+        )
+        if pattern_link is None or pattern_link.canonical_entity_id is None:
+            # Unresolvable references are recorded as failed records and surface
+            # in the quality report — never guessed.
+            raise ValueError(f"unresolved reference: pattern '{payload['pattern_external_ref']}'")
+        stop_link = await _find_canonical_link(
+            session, source.id, payload["stop_external_ref"], "stop"
+        )
+        if stop_link is None or stop_link.canonical_entity_id is None:
+            raise ValueError(f"unresolved reference: stop '{payload['stop_external_ref']}'")
+
+        pattern_id = pattern_link.canonical_entity_id
+        stop_id = stop_link.canonical_entity_id
+        sequence = int(payload["sequence"])
+        boarding = bool(payload.get("boarding_allowed", True))
+        alighting = bool(payload.get("alighting_allowed", True))
+
+        result = await session.execute(
+            select(RoutePatternStop).where(
+                RoutePatternStop.pattern_id == pattern_id,
+                RoutePatternStop.sequence == sequence,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            changed = (
+                existing.stop_id != stop_id
+                or existing.boarding_allowed != boarding
+                or existing.alighting_allowed != alighting
+            )
+            existing.stop_id = stop_id
+            existing.boarding_allowed = boarding
+            existing.alighting_allowed = alighting
+            await session.flush()
+            return UpsertResult(
+                self.entity_type, existing.id, "updated" if changed else "unchanged"
+            )
+
+        call = RoutePatternStop(
+            pattern_id=pattern_id,
+            stop_id=stop_id,
+            sequence=sequence,
+            boarding_allowed=boarding,
+            alighting_allowed=alighting,
+        )
+        session.add(call)
+        await session.flush()
+        return UpsertResult(self.entity_type, call.id, "added")
+
+
 UPSERTERS: dict[str, EntityUpsert] = {
     StopUpsert.entity_type: StopUpsert(),
     RouteUpsert.entity_type: RouteUpsert(),
     PlaceUpsert.entity_type: PlaceUpsert(),
+    PatternUpsert.entity_type: PatternUpsert(),
+    PatternStopUpsert.entity_type: PatternStopUpsert(),
 }
 
 

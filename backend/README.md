@@ -51,12 +51,36 @@ places/aliases (`localities`, `places`, `place_access_points`,
 - `service.py` — `SourceRegistry`, `IngestionService.run_sync`
   (fetch → checksum dedupe → archive → parse → validate → idempotent upsert →
   diffs → candidate version), `DatasetVersionService` (publish/rollback),
-  entity upsert handlers for `stop`, `route`, `place` (pattern/stop-sequence
-  and transfer handlers require cross-record matching → Phase 1.3).
+  entity upsert handlers for `stop`, `route`, `place`, `route_pattern`,
+  `route_pattern_stop` (cross-record matching via `source_records` links).
 
 Admin endpoints (`/api/v1/admin/sources`, `/admin/sources/{id}/sync`,
-`/admin/sync-runs/{id}`, `/admin/dataset-versions[...]`) are mounted only
-outside production (auth arrives in Phase 9).
+`/admin/sync-runs/{id}`, `/admin/dataset-versions[...]`, QA reports) are
+mounted only outside production (auth arrives in Phase 9).
+
+## First source adapter + quality report (Phase 1.3)
+
+- `adapters/overpass.py` — **OpenStreetMap via Overpass API** (ODbL 1.0; see
+  `data/source-rights-register.md`). Fetches named bus stops and
+  `route=bus` relations for `PILOT_BBOX` (default central Colombo; configurable,
+  never hard-coded). Relations sharing a `ref` are grouped into one route with
+  per-relation variants; ordered member calls carry role-derived
+  boarding/alighting eligibility; `name:si`/`name:ta` tags become aliases.
+  Unnamed stop nodes are excluded, never invented; unresolvable member
+  references fail that record and surface in the QA report.
+- `report.py` — `QualityReportService`: per-version data-quality report
+  (diffs, coverage, checks with honest caveats) as JSON + Markdown under
+  `data/validation_reports/` (committed as evidence; raw snapshots are not).
+- `scripts/seed_osm_source.py` — idempotent source-registry seed (licence and
+  attribution recorded before ingestion).
+
+Typical flow (inside the backend container):
+
+```sh
+python scripts/seed_osm_source.py
+# then POST /api/v1/admin/sources/<id>/sync {"adapter": "overpass"}
+# then POST /api/v1/admin/dataset-versions/<id>/quality-report/write
+```
 
 ## Development (Docker-first — recommended)
 

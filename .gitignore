@@ -37,8 +37,10 @@ yarn-error.log*
 !.env.example
 
 # ---- Local data, logs, temp ----
-data/
-data/local/
+# Raw source archives stay private (plan §5.2 / ODbL discipline); committed
+# quality reports live under backend/data/validation_reports/.
+data/raw/
+backend/data/raw/
 *.log
 tmp/
 temp/
