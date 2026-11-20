@@ -10,11 +10,12 @@ The Sri Lanka Journey Planner: a multimodal public-transport journey planner tha
 
 Read, in this order, the parts relevant to your task:
 
-1. `docs/product/11_IMPLEMENTATION_PLAN.md` — engineering control document (Phases 0–10, standards, agent protocol §12).
-2. `docs/architecture/00_EXECUTIVE_SUMMARY_AND_DECISIONS.md` — ratified baseline decisions.
-3. `docs/architecture/07_TECH_STACK.md`, `docs/architecture/08_DATA_MODEL.md`, `docs/architecture/10_ROUTING_ENGINE.md`, `docs/architecture/11_BACKEND_API_DESIGN.md` — stack, data model, routing and API contracts.
-4. Relevant product documents in `docs/product/00–09` for the feature area.
-5. `docs/adr/` — all accepted ADRs; check whether your task conflicts with a recorded decision.
+1. `docs/status/development-status-report.md` — **current phase, status, issue log and remaining path; keep it updated (see §5)**
+2. `docs/product/11_IMPLEMENTATION_PLAN.md` — engineering control document (Phases 0–10, standards, agent protocol §12).
+3. `docs/architecture/00_EXECUTIVE_SUMMARY_AND_DECISIONS.md` — ratified baseline decisions.
+4. `docs/architecture/07_TECH_STACK.md`, `docs/architecture/08_DATA_MODEL.md`, `docs/architecture/10_ROUTING_ENGINE.md`, `docs/architecture/11_BACKEND_API_DESIGN.md` — stack, data model, routing and API contracts.
+5. Relevant product documents in `docs/product/00–09` for the feature area.
+6. `docs/adr/` — all accepted ADRs; check whether your task conflicts with a recorded decision.
 
 Document precedence when documents conflict (per `11_IMPLEMENTATION_PLAN.md` §0.2): ADR-recorded latest owner decision > approved technical architecture > the implementation plan > product feature/user-story documents > earlier research drafts. Flag conflicts; never resolve them silently.
 
@@ -40,6 +41,7 @@ React Native + TypeScript + Expo (Expo Router, TanStack Query + Zustand, SQLite,
 3. Produce a short implementation plan, then implement only the approved scope.
 4. Add/execute the required tests. **Never claim a test passed unless it was run and passed.** Do not weaken or delete tests to make a task pass.
 5. Provide a truthful final report: task/phase, branch/commit inspected, files changed, data/schema/API changes, commands executed with exact results, acceptance criteria PASS/FAIL/BLOCKED with evidence, limitations, ADR/documentation updates, and a recommended next bounded task.
+5b. **Update `docs/status/development-status-report.md`** — the status dashboard (§5), phase record (§6), issue log (§7, append-only) and remaining path (§10) — so the report always reflects the true current position, test results, and any issues and their fixes.
 6. Stop and ask when a decision materially affects data rights, route correctness, privacy, architecture or user safety.
 
 ## 6. Repository conventions

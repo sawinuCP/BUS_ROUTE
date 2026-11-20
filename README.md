@@ -47,6 +47,7 @@ All project documentation lives under `docs/` (consolidated per ADR-0001):
 
 ## Start here
 
+0. **`docs/status/development-status-report.md`** — living status report: current phase, what is done/tested, issues & fixes, remaining path (**kept updated on every task**).
 1. **`docs/architecture/00_EXECUTIVE_SUMMARY_AND_DECISIONS.md`** — product definition and the ratified baseline architecture decision table.
 2. **`docs/product/00_DOCUMENTATION_INDEX_AND_PRODUCT_VISION.md`** — product vision (research draft).
 3. **`docs/product/11_IMPLEMENTATION_PLAN.md`** — the execution plan and engineering control document (Phases 0–10, engineering standards, coding-agent protocol).
