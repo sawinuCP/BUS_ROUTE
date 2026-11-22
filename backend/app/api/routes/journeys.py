@@ -90,6 +90,10 @@ class PlanRequest(BaseModel):
     origin: EndpointModel
     destination: EndpointModel
     preferences: PreferencesModel = PreferencesModel()
+    language: Literal["en", "si", "ta"] = Field(
+        default="en",
+        description="Instruction language. si/ta fall back to English until native review (D-7).",
+    )
     save: bool = Field(
         default=False,
         description="Persist the plan as a saved journey (retrievable/refreshable).",
@@ -104,7 +108,8 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
         network.version_label,
         request.origin.model_dump(mode="json"),
         request.destination.model_dump(mode="json"),
-        request.preferences.model_dump(mode="json"),
+        # Language is part of the normalized request (instructions differ).
+        {**request.preferences.model_dump(mode="json"), "language": request.language},
     )
     cache = _cache()
     cached = await cache.get_json(key)
@@ -116,7 +121,10 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
                 session,
                 origin=request.origin.model_dump(mode="json"),
                 destination=request.destination.model_dump(mode="json"),
-                preferences=request.preferences.model_dump(mode="json"),
+                preferences={
+                    **request.preferences.model_dump(mode="json"),
+                    "language": request.language,
+                },
                 response=snapshot,
             )
             await session.commit()
@@ -133,8 +141,15 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
         request.preferences.to_constraints(),
         priority=request.preferences.priority,
     )
-    payload = serialize_result(result)
+    payload = serialize_result(result, network=network, language=request.language)
     payload["cache"] = "miss"
+    payload["language"] = request.language
+    if request.language != "en":
+        payload["notes"] = [
+            *payload["notes"],
+            "si/ta instruction text is rendered in English until native review"
+            " is complete (deferred decision D-7).",
+        ]
     payload["note"] = (
         "Plans are grounded in canonical, versioned transport data. No"
         " timetable, fare or live-availability claim is made; every option"
@@ -147,7 +162,10 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
             session,
             origin=request.origin.model_dump(mode="json"),
             destination=request.destination.model_dump(mode="json"),
-            preferences=request.preferences.model_dump(mode="json"),
+            preferences={
+                **request.preferences.model_dump(mode="json"),
+                "language": request.language,
+            },
             response=payload,
         )
         await session.commit()

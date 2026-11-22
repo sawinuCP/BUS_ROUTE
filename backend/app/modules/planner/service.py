@@ -452,6 +452,12 @@ class JourneyPlanner:
         alight_stop = self._network.stops[alight_call.stop_id]
         straight = haversine_m(board_stop.lon, board_stop.lat, alight_stop.lon, alight_stop.lat)
         distance_m, duration_min_s, duration_max_s = ride_estimate(straight)
+        # Phase 5 work item 5: the intermediate-stop count is only trustworthy
+        # when the stored sequence numbers are contiguous across the span.
+        span = pattern.calls[board_index : alight_index + 1]
+        sequences = [call.sequence for call in span]
+        contiguous = all(b - a == 1 for a, b in zip(sequences, sequences[1:], strict=False))
+        intermediate_stops = (alight_index - board_index - 1) if contiguous else None
         return RideLeg(
             pattern_id=str(pattern.id),
             route_id=str(pattern.route_id),
@@ -468,6 +474,7 @@ class JourneyPlanner:
             alight_stop_id=str(alight_stop.id),
             alight_stop_name=alight_stop.name,
             alight_sequence=alight_call.sequence,
+            intermediate_stops=intermediate_stops,
             estimated_distance_m=round(distance_m, 1),
             duration_min_s=round(duration_min_s, 1),
             duration_max_s=round(duration_max_s, 1),

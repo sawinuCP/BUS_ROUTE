@@ -107,6 +107,7 @@ async def _add_pattern(
     *,
     mode: str = "bus",
     verification: str = "unverified",
+    destination_label: str | None = None,
 ) -> str:
     route_id = (
         await db_conn.execute(
@@ -120,10 +121,16 @@ async def _add_pattern(
         await db_conn.execute(
             text(
                 "INSERT INTO route_patterns (route_id, pattern_code, direction_id,"
-                " verification_status)"
-                f" VALUES (:r, '{route_code}-D0', 0, :verification) RETURNING id"
+                " verification_status, destination_label)"
+                " VALUES (:r, :code_d0, 0, :verification, :destination_label)"
+                " RETURNING id"
             ),
-            {"r": route_id, "verification": verification},
+            {
+                "r": route_id,
+                "code_d0": f"{route_code}-D0",
+                "verification": verification,
+                "destination_label": destination_label,
+            },
         )
     ).scalar_one()
     for stop_code, sequence in calls:
@@ -389,7 +396,9 @@ async def test_multi_transfer_chain_within_transfer_cap(
     assert capped.status == "no_route"
 
 
-async def test_plan_endpoint_contract() -> None:
+async def test_plan_endpoint_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """API contract: POST /journeys/plan returns versioned, honest options.
 
     Uses its own engine + commit (the endpoint runs in its own session), and
@@ -400,13 +409,25 @@ async def test_plan_endpoint_contract() -> None:
 
     from app.main import app
     from app.platform.config import get_settings
+    from app.platform.db import dispose_engine
     from tests.integration.conftest import _CLEANUP_ORDER
+    from tests.integration.test_plan_cache_and_saved import FakeCacheStore
+
+    # Endpoint tests must not touch the real Redis client (its connection pool
+    # binds to one event loop; crossing loops corrupts teardown).
+    monkeypatch.setattr("app.api.routes.journeys._cache", lambda: FakeCacheStore())
 
     engine = create_async_engine(get_settings().database_url)
     try:
         async with engine.begin() as conn:
             ids = await _seed_base(conn)
-            await _add_pattern(conn, ids, "138", [("A", 1), ("C", 2)])
+            await _add_pattern(
+                conn,
+                ids,
+                "138",
+                [("A", 1), ("C", 2)],
+                destination_label="Homagama",
+            )
 
         with TestClient(app) as client:
             response = client.post(
@@ -435,12 +456,44 @@ async def test_plan_endpoint_contract() -> None:
         assert ride["instruction_code"] == "RIDE_TRANSIT"
         assert ride["board_sequence"] == 1
         assert ride["alight_sequence"] == 2
+        assert ride["intermediate_stops"] == 0
         assert (
             ride["estimated_duration_minutes"]["min"] <= ride["estimated_duration_minutes"]["max"]
         )
         assert any("not been field-verified" in w for w in option["warnings"])
+
+        # Phase 5: ordered, executable instruction steps with honest facts.
+        assert payload["language"] == "en"
+        steps = option["steps"]
+        assert [s["action"] for s in steps] == [
+            "BOARD_TRANSIT",
+            "RIDE_TRANSIT",
+            "ALIGHT_TRANSIT",
+        ]
+        assert steps[0]["text"] == "Board route 138 at Stop A heading towards Homagama."
+        assert steps[1]["text"] == "Ride 1 stop to Stop C."
+        assert steps[1]["facts"]["intermediate_stops"] == 0
+        assert steps[2]["text"] == "Alight at Stop C."
+
+        # si/ta fall back to English with an explicit limitation note (D-7).
+        si_response = client.post(
+            "/api/v1/journeys/plan",
+            json={
+                "origin": {"type": "stop", "stop_id": str(ids["A"])},
+                "destination": {"type": "stop", "stop_id": str(ids["C"])},
+                "language": "si",
+            },
+        )
+        si_payload = si_response.json()
+        assert si_payload["language"] == "si"
+        assert any("native review" in note for note in si_payload["notes"])
+        assert si_payload["options"][0]["steps"][1]["text"] == "Ride 1 stop to Stop C."
     finally:
         async with engine.begin() as conn:
             for statement in _CLEANUP_ORDER:
                 await conn.execute(text(statement))
         await engine.dispose()
+        # The endpoint ran on the process-global engine inside TestClient's
+        # event loop; dispose it so later per-test loops never find stale
+        # pooled connections (I-13 pattern).
+        await dispose_engine()

@@ -106,6 +106,10 @@ class RideLeg:
     alight_stop_id: str
     alight_stop_name: str
     alight_sequence: int
+    # Number of stops strictly between board and alight, only when the stored
+    # sequence numbers are contiguous across the span (Phase 5 work item 5:
+    # show intermediate counts only when the ordered sequence is reliable).
+    intermediate_stops: int | None
     estimated_distance_m: float
     duration_min_s: float
     duration_max_s: float

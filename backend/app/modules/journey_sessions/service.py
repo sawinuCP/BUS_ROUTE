@@ -93,15 +93,19 @@ async def refresh_saved_journey(
 
     network = await load_network(session)
     planner = JourneyPlanner(network, walking_router)
+    stored_preferences = dict(row.preferences)
     result = await planner.plan(
         _endpoint_from_payload(dict(row.origin)),
         _endpoint_from_payload(dict(row.destination)),
-        _constraints_from_payload(dict(row.preferences)),
-        priority=str(dict(row.preferences).get("priority", "fastest")),
+        _constraints_from_payload(stored_preferences),
+        priority=str(stored_preferences.get("priority", "fastest")),
     )
 
     previous_version = row.dataset_version_label
-    payload = serialize_result(result)
+    payload = serialize_result(
+        result, network=network, language=str(stored_preferences.get("language", "en"))
+    )
+    payload["language"] = str(stored_preferences.get("language", "en"))
     payload["journey_id"] = str(row.id)
     payload["refreshed"] = True
     payload["previous_dataset_version"] = previous_version

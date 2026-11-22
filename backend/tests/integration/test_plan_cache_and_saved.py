@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.main import app
 from app.platform.config import get_settings
+from app.platform.db import dispose_engine
 from tests.integration.conftest import _CLEANUP_ORDER
 from tests.integration.test_planner import _add_pattern, _seed_base
 
@@ -85,6 +86,10 @@ async def _cleanup() -> None:
                 await conn.execute(text(statement))
     finally:
         await engine.dispose()
+    # Endpoint tests ran on the process-global engine inside TestClient's event
+    # loop; dispose it so later per-test loops never find stale pooled
+    # connections (I-13 pattern).
+    await dispose_engine()
 
 
 async def test_cache_hit_then_version_change_invalidates(

@@ -26,6 +26,7 @@ def _ride(
     alight: str = "B",
     minutes_min: float = 10.0,
     minutes_max: float = 15.0,
+    intermediate_stops: int | None = 0,
 ) -> RideLeg:
     return RideLeg(
         pattern_id=f"pattern-{pattern}",
@@ -43,6 +44,7 @@ def _ride(
         alight_stop_id=alight,
         alight_stop_name=alight,
         alight_sequence=2,
+        intermediate_stops=intermediate_stops,
         estimated_distance_m=1000.0,
         duration_min_s=minutes_min * 60.0,
         duration_max_s=minutes_max * 60.0,

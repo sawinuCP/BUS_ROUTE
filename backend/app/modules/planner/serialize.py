@@ -32,6 +32,7 @@ def serialize_leg(leg: RideLeg | WalkLeg) -> dict[str, Any]:
             "alight_stop_name": leg.alight_stop_name,
             "alight_sequence": leg.alight_sequence,
             "estimated_distance_m": leg.estimated_distance_m,
+            "intermediate_stops": leg.intermediate_stops,
             "estimated_duration_minutes": {
                 "min": round(leg.duration_min_s / 60.0, 1),
                 "max": round(leg.duration_max_s / 60.0, 1),
@@ -52,8 +53,18 @@ def serialize_leg(leg: RideLeg | WalkLeg) -> dict[str, Any]:
     }
 
 
-def serialize_result(result: PlanningResult) -> dict[str, Any]:
-    """Full plan payload (without request-specific extras like journey IDs)."""
+def serialize_result(
+    result: PlanningResult,
+    network: Any = None,
+    language: str = "en",
+) -> dict[str, Any]:
+    """Full plan payload (without request-specific extras like journey IDs).
+
+    When a network snapshot is supplied, each option also carries an ordered
+    `steps` array of deterministic instruction templates (Phase 5).
+    """
+    from app.modules.itineraries.instructions import build_steps
+
     options = [
         {
             "id": f"option-{index + 1}",
@@ -69,6 +80,21 @@ def serialize_result(result: PlanningResult) -> dict[str, Any]:
             "labels": [label for label, position in result.labels.items() if position == index],
             "warnings": list(itinerary.warnings),
             "legs": [serialize_leg(leg) for leg in itinerary.legs],
+            **(
+                {
+                    "steps": [
+                        {
+                            "action": step.action,
+                            "text": step.text,
+                            "facts": step.facts,
+                            "confidence": step.confidence,
+                        }
+                        for step in build_steps(network, itinerary.legs, language)
+                    ]
+                }
+                if network is not None
+                else {}
+            ),
         }
         for index, itinerary in enumerate(result.options)
     ]
