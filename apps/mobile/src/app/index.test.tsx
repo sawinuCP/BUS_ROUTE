@@ -2,6 +2,13 @@ import { render, screen as rtlScreen, userEvent } from '@testing-library/react-n
 
 import HomeScreen from '@/app/index';
 
+jest.mock('expo-location', () => ({
+  Accuracy: { Balanced: 3 },
+  getCurrentPositionAsync: jest.fn(async () => ({
+    coords: { latitude: 6.9107, longitude: 79.8483 },
+  })),
+}));
+
 // userEvent is used because runSearch updates state asynchronously after the
 // press resolves — fireEvent's synchronous act() scope does not cover it.
 
@@ -76,5 +83,64 @@ describe('HomeScreen search (Phase 2)', () => {
     await user.press(rtlScreen.getByTestId('search-button'));
 
     expect(await screen.findByText(/No matches in the pilot data/)).toBeTruthy();
+  });
+
+  it('lists nearby mapped stops on an explicit tap — assistive, never stored (Phase 2 item 9)', async () => {
+    const fetchMock = jest.fn((url: string) => {
+      if (url.includes('/stops?bbox=')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            bbox: '6.89070,79.82830,6.93070,79.86830',
+            count: 1,
+            stops: [
+              {
+                entity_type: 'stop',
+                entity_id: 'near-1',
+                name: 'Nearby Junction halt',
+                coordinates: { lon: 79.8483, lat: 6.9107 },
+                stop_type: 'bus_stop',
+                mode: 'bus',
+                verification_status: 'unverified',
+              },
+            ],
+          }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<HomeScreen />);
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('nearby-button'));
+
+    // One-shot fix → bbox query → candidates listed; nothing auto-selected.
+    expect(await screen.findByText('Nearby Junction halt')).toBeTruthy();
+    await user.press(screen.getByTestId('result-near-1'));
+    expect(screen.getByText('Bus stop: Nearby Junction halt')).toBeTruthy();
+    expect(screen.getByText(/nearest to you \(straight-line, as mapped\)/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/stops?bbox=6.89070%2C79.82830%2C6.93070%2C79.86830'),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('falls back honestly when the location fix fails (permission denied / no fix)', async () => {
+    const { getCurrentPositionAsync } = jest.requireMock('expo-location') as {
+      getCurrentPositionAsync: jest.Mock;
+    };
+    getCurrentPositionAsync.mockRejectedValueOnce(new Error('permission denied'));
+
+    const screen = await render(<HomeScreen />);
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('nearby-button'));
+
+    // The manual-coordinate fallback always works (product rule).
+    expect(
+      await screen.findByText(/Could not get your location — search by name or enter coordinates/),
+    ).toBeTruthy();
+    expect(rtlScreen.getByTestId('manual-button')).toBeTruthy();
   });
 });

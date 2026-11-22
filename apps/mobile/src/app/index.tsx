@@ -1,3 +1,4 @@
+import * as Location from 'expo-location';
 import { Link } from 'expo-router';
 import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -5,13 +6,17 @@ import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { searchPlaces, type SearchHit } from '@/lib/api';
+import { distanceMeters } from '@/lib/geoSuggestions';
+import { fetchStopsInBbox, searchPlaces, type SearchHit } from '@/lib/api';
 
 /**
  * Home / plan entry (Phase 2).
  * Origin/destination search over the pilot index with multilingual aliases.
  * Ambiguous candidates are listed — the user selects; nothing auto-selects.
  * Manual coordinate entry is the no-location / no-result fallback (US-002/005).
+ * "Stops near me" (Phase 2 item 9) is assistive only: an explicit tap takes
+ * one location fix for a single bbox search — never stored, never
+ * auto-selected; denied permission falls back to search/manual entry.
  * Map selection (MapLibre) is a separate screen pending the dev-client spike.
  */
 
@@ -56,6 +61,60 @@ export default function HomeScreen() {
     }
   }
 
+  /**
+   * Current-location flow (Phase 2 item 9), assistive only: an explicit tap
+   * takes one GPS fix for a single bbox stop search. The fix is never stored
+   * and nothing is auto-selected — denied permission falls back to the
+   * manual-coordinate entry below.
+   */
+  async function findStopsNearMe() {
+    setLoading(true);
+    setError(null);
+    try {
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = position.coords;
+      const delta = 0.02; // ≈ 2.2 km box around the position
+      const response = await fetchStopsInBbox(
+        `${(latitude - delta).toFixed(5)},${(longitude - delta).toFixed(5)},`
+          + `${(latitude + delta).toFixed(5)},${(longitude + delta).toFixed(5)}`,
+      );
+      const nearest: SearchHit[] = response.stops
+        .map((stop) => ({
+          stop,
+          distance: distanceMeters(latitude, longitude, stop.coordinates.lat, stop.coordinates.lon),
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 10)
+        .map(({ stop, distance }) => ({
+          entity_type: 'stop' as const,
+          entity_id: stop.entity_id,
+          name: stop.name,
+          matched_text: `${Math.round(distance)} m away`,
+          matched_language: 'nearby' as string,
+          score: 1,
+          coordinates: stop.coordinates,
+          verification_status: stop.verification_status,
+          locality: null,
+          mode: stop.mode,
+        }));
+      setResults(nearest);
+      setSearched(true);
+      if (nearest.length === 0) {
+        setError('No mapped stops within ~2 km — enter coordinates or search by name.');
+      }
+    } catch {
+      // Permission denied, no fix, or the backend unreachable: the manual
+      // fallback below always works (product rule; plan item 9).
+      setError(
+        'Could not get your location — search by name or enter coordinates manually.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function useManualCoordinates() {
     const lat = Number.parseFloat(manualLat);
     const lon = Number.parseFloat(manualLon);
@@ -88,6 +147,9 @@ export default function HomeScreen() {
       />
       <Pressable style={styles.button} onPress={() => void runSearch()} testID="search-button">
         <ThemedText type="smallBold">{loading ? 'Searching…' : 'Search'}</ThemedText>
+      </Pressable>
+      <Pressable style={styles.button} onPress={() => void findStopsNearMe()} testID="nearby-button">
+        <ThemedText type="smallBold">Stops near me (uses location once)</ThemedText>
       </Pressable>
 
       {error ? <ThemedText type="small">{error}</ThemedText> : null}
@@ -133,7 +195,9 @@ export default function HomeScreen() {
                 detail: `${
                   item.matched_language === 'canonical'
                     ? 'matched by name'
-                    : `matched via ${item.matched_language} name`
+                    : item.matched_language === 'nearby'
+                      ? 'nearest to you (straight-line, as mapped)'
+                      : `matched via ${item.matched_language} name`
                 }${item.verification_status === 'unverified' ? ' · not field-checked yet' : ''}`,
                 ...(item.coordinates ? { coords: item.coordinates } : {}),
               })
