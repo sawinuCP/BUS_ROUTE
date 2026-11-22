@@ -80,7 +80,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 5 backend core done in code (typed instruction steps + deterministic templates, live-verified) · remaining Phase 5: si/ta native review (D-7), mobile results/instructions screens (items 9–10) · owner field walks still pending (Phase 1/3/4 shared exit gate)**
+> **▸ CURRENT POSITION: Phase 5 complete in code (backend instruction core + mobile results/instructions screens) · remaining: si/ta native review (D-7, owner), device runtime verification (D-5/D-9, owner) · Phase 6 next · owner field walks still pending (Phase 1/3/4 shared exit gate)**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
@@ -103,10 +103,10 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 2 Place search + local names + map | ✅ Done* | (this phase) | Trigram search over aliases (en/si/ta) + canonical names; `GET /places/search`, `GET /stops?bbox=`, reverse-geocode adapter (none configured — honest); mobile search UI + manual-coordinate fallback; migration `0005` | **60/60 backend** · **11/11 mobile** · live: 'pettah' → stop hit, '176' → route hit, bbox → 54 stops; *MapLibre screen pending device spike* |
 | **3 — Pedestrian routing & transfer graph** | ✅ Done* | (this phase) | Valhalla PoC + **ADR-0008 ratified**; walking adapter (`/api/v1/walking/route`); **route shapes imported for 41/45 patterns** (101 Moratuwa→Fort = 21.1 km ✓); 432 stop access points; **19 candidate transfer connectors** routed through the walking engine (51–434 m, avg 234 m) | **75/75 backend** (9 new tests); live: real reparse + candidate generation; *exit gate needs field-checked pilot paths (owner walks)* |
 | **4 — Deterministic multimodal planner** | ✅ Done* | (this phase) | Core planner (exact patterns + explicit connectors, board-before-alight, walk legs only from routed paths, constraints, rail verified-only, Pareto + labels, honest `no_route`); **plan cache** (Redis, request+version keyed, ADR-0003); **saved journeys** (`save`, `GET /journeys/{id}`, `/refresh` re-plans against active version); **performance baseline** (`docs/evidence/plan-benchmark-2026-11-22.md`: miss p95 3.5 ms, hit p95 2.0 ms on 5 representative pairs × 10 iters) | **101/101 backend** (26 new across both tasks); live: direct + 1-transfer journeys ✓, cache miss→hit ✓, save/get/refresh ✓, version-change invalidation ✓; *owner field walks + regression-suite extension remain* |
-| **5 — Instructions + itinerary UX (backend core)** | 🔄 In progress | (this phase) | New canonical module `itineraries`: typed `InstructionStep` with stable action codes (WALK_TO_STOP / BOARD_TRANSIT / RIDE_TRANSIT / ALIGHT_TRANSIT / WALK_TRANSFER / WALK_TO_DESTINATION); deterministic English templates backed strictly by structured facts (absent headsign omitted + "not confirmed"; intermediate-stop count **only when the ordered sequence is contiguous** — gaps withheld); transfer steps name the next boarding point; `language` param with honest si/ta→English fallback note (D-7) | **109/109 backend** (9 new: 8 template snapshots incl. no-fabrication cases + endpoint steps/si-fallback); live: Kollupitiya→Fort renders "Board route 101 at Kollupitiya Junction halt heading towards Colombo Fort." and honestly withholds the stop count (OSM sequence gap) ✓; *remaining: si/ta native review, mobile screens* |
+| **5 — Instructions + itinerary UX** | ✅ Done* | (this phase) | Backend core (see 2026-11-22 record) **+ mobile screens (items 9–10)**: `journey` screen rewritten from placeholder to plan flow (stop pickers with explicit selection, `no_route` honesty, results **cards with trade-offs** — duration band labelled "network estimate", walking, transfers, label chips, confidence phrasing) and new `journey-steps` screen (ordered instruction steps verbatim from the backend templates, warnings, dataset-version + not-live footer); typed plan payloads + `planJourney()` in `lib/api.ts`; in-memory plan hand-off store | **18/18 mobile** (7 new: cards + trade-offs + hand-off, honest no_route, planning-failure error, ordered steps verbatim, no-plan state); tsc + eslint clean; *runtime device check still pending owner spike (D-5/D-9); si/ta native review pending (D-7)* |
 | 6 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **109 passed** · `ruff format --check`/`check` clean · `mypy` clean (57 files) · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
+**Current quality gate totals:** backend `pytest` **109 passed** · `ruff format --check`/`check` clean · `mypy` clean (57 files) · mobile `jest` **18 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
 
 ---
 
@@ -246,6 +246,16 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **Tests (9 new)**: 8 template snapshot tests (exact strings; absent-headsign omission; gap-withheld count; walk-purpose variants; executable step ordering) + endpoint assertions (ordered actions, exact texts, si fallback note). Two real defects were found and fixed during verification: the cache key initially omitted `language` (an si request would have been served the cached en payload), and endpoint tests touching the real Redis client corrupted later tests' event loops (fake cache injected; global engine disposed after TestClient tests, I-13 pattern).
 - **Deliberately deferred within Phase 5**: si/ta template authoring + native review (D-7, owner-blocked), and the mobile results/instructions screens (plan items 9–10) as a separate bounded task.
 
+### Phase 5 — mobile screens: results cards + step-by-step instructions (2026-11-22)
+
+- **`lib/api.ts`**: typed plan payloads mirroring the backend contract exactly (`PlanEndpoint`, `PlanOption`/`PlanStep`/legs incl. `intermediate_stops: number | null`) + `planJourney()` (POST `/journeys/plan`, 30 s timeout — planning may route walking legs).
+- **`lib/planStore.ts`**: in-memory hand-off of the last plan (Expo Router params must be strings; a full plan is too large for a URL). Losing it on app restart is acceptable — plans are regenerated on demand and can be saved server-side.
+- **`app/journey.tsx` rewritten** (was the Phase 0.4 placeholder): two stop pickers (search → explicit user selection, ambiguous results never auto-selected), "Find journeys" → results **cards with explicit trade-offs**: duration band labelled "network estimate", walking distance, transfer count, ranking-label chips, honest confidence phrasing ("Includes route data/transfer path not yet field-checked"), warnings, and a footer with the dataset version + "service frequency is not confirmed". `no_route` renders the backend's own notes in an honest block — the app never invents a journey; planning failures show a connection error.
+- **`app/journey-steps.tsx` (new)**: renders the selected option's ordered `steps` **verbatim from the backend's deterministic templates** (never rewritten client-side), with the option summary, warnings, and the honesty footer (dataset version; "network feasible, not live confirmed — waiting times are unknown; board the next bus on the shown route"). Opened without a plan → an explanatory "No plan in progress" state.
+- **Wiring**: `journey-steps` registered in `_layout.tsx`; home link renamed "Plan a journey".
+- **Tests (7 new → 18/18)**: cards render trade-offs/labels/confidence and hand the plan to the store; `no_route` shows the backend notes and no cards; planning-failure error (only the POST fails — searches keep working); ordered steps rendered verbatim with warnings + honesty footer; no-plan state. One real bug found and fixed during testing (a duplicated leftover stylesheet broke the suite parse).
+- **Deliberately deferred**: runtime on-device verification (D-5/D-9 owner spike) and si/ta native review (D-7).
+
 
 
 
@@ -356,6 +366,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: Phase 4 core — `POST /api/v1/journeys/plan` live against the real dev network: **Kollupitiya→Colombo Fort** direct on route 101 (0 transfers, 0 walking, 12.5–18.7 min band, confidence `unverified_pattern`) and **Willium Junction→Narahenpita** one-transfer (101 → stored 142 m connector walk → 141, 20.7–30.2 min, confidence `unverified_transfer`); Fort→Kollupitiya correctly returns `no_route` (the OSM relation only captured the Moratuwa→Fort direction — riding backwards is refused, board-before-alight held). Backend gates **92/92** (17 new), ruff/format/mypy clean; dev DB intact (432 stops).
 - 2026-11-22: Phase 4 completion — migration `0006_saved_journeys` applied to the dev DB; live smoke: plan cache `miss → hit` on identical requests, `save: true` on a cache hit persists an identical snapshot (`journey_id` returned), `GET /journeys/{id}` returns the snapshot with `saved_at_dataset_version`, `/refresh` re-plans (`refreshed: true`, previous/current version labels), unknown ID → 404; performance baseline measured (`plan_benchmark.py`): **miss p95 3.5 ms / p50 0.2 ms, Redis hit p95 2.0 ms / p50 0.9 ms** → targets in `docs/evidence/plan-benchmark-2026-11-22.md`; backend gates **101/101** (9 new), ruff/format/mypy clean; dev DB intact (432 stops).
 - 2026-11-22: Phase 5 backend core — live: Kollupitiya→Colombo Fort renders ordered steps — "Board route 101 at Kollupitiya Junction halt heading towards Colombo Fort." → "Stay on route 101 and alight at Colombo Fort." (intermediate-stop count **honestly withheld**: the OSM relation's sequence has gaps, `facts.intermediate_stops = "not confirmed"`) → "Alight at Colombo Fort."; `language: si` falls back to English with the D-7 native-review note; cache keys include language (en/si never cross-served). Backend gates **109/109** (9 new), ruff/format/mypy clean, run twice consecutively; dev DB intact (432 stops).
+- 2026-11-22: Phase 5 mobile — `npm test` **18/18** (7 new), `tsc --noEmit` clean, `expo lint` clean; screens: journey (plan + results cards with trade-offs and honest `no_route`) and journey-steps (verbatim ordered instructions + honesty footer). Device runtime check remains pending the owner's dev-client spike (D-5/D-9).
 
 ---
 
@@ -433,7 +444,8 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [x] `language` parameter with honest si/ta→English fallback note (D-7); language included in cache keys and saved-journey refresh
 - [ ] si/ta template authoring + **native review** (D-7 — owner-blocked)
 - [x] Time/distance breakdown, confidence, dataset version and static-service caveat per option (delivered with the Phase 4 planner response)
-- [ ] Mobile: results cards with trade-offs + map preview; step-by-step instructions screens (plan items 9–10) — next bounded task
+- [x] Mobile: results cards with trade-offs + map preview path ("View on map" from search; step screens consume backend `steps` verbatim) + step-by-step instructions screen (plan items 9–10)
+- [ ] Owner device runtime check of the journey flow (D-5/D-9 spike) and si/ta native review (D-7)
 - [ ] Owner field walks (shared exit gate) — verified facts will upgrade instruction details (access-point names, landmarks, entrances)
 
 **Phase 6 — Active journey mode; Phase 7 — Offline/recovery/reports; Phase 8 — Grounded AI; Phase 9 — Pilot hardening/release; Phase 10 — Expansion**
@@ -455,4 +467,4 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 
 ---
 
-*End of report. Next update: Phase 5 mobile screens (items 9–10) or Phase 6 start, or after the owner field walks.*
+*End of report. Next update: Phase 6 (active journey mode) start, or after the owner field walks / device spike.*

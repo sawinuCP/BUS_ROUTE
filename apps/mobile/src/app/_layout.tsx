@@ -17,7 +17,8 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="index" options={{ title: 'Sri Lanka Journey Planner' }} />
-        <Stack.Screen name="journey" options={{ title: 'Journey' }} />
+        <Stack.Screen name="journey" options={{ title: 'Plan a journey' }} />
+        <Stack.Screen name="journey-steps" options={{ title: 'Your journey' }} />
       </Stack>
     </ThemeProvider>
   );

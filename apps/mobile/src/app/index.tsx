@@ -178,7 +178,7 @@ export default function HomeScreen() {
       </View>
 
       <Link href="/journey">
-        <ThemedText type="linkPrimary">Journey placeholder</ThemedText>
+        <ThemedText type="linkPrimary">Plan a journey</ThemedText>
       </Link>
     </ThemedView>
   );
