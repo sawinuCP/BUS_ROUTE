@@ -20,6 +20,7 @@ from starlette.responses import Response
 
 from app.api.routes.admin import router as admin_router
 from app.api.routes.health import router as health_router
+from app.api.routes.journey_sessions import router as journey_sessions_router
 from app.api.routes.journeys import router as journeys_router
 from app.api.routes.pedestrian import router as pedestrian_router
 from app.api.routes.search import router as search_router
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router, prefix=settings.api_v1_prefix)
     app.include_router(pedestrian_router, prefix=settings.api_v1_prefix)
     app.include_router(journeys_router, prefix=settings.api_v1_prefix)
+    app.include_router(journey_sessions_router, prefix=settings.api_v1_prefix)
 
     # Admin/data-operations endpoints are mounted only outside production.
     # Production must expose them behind OAuth2/OIDC + RBAC (architecture doc 14).

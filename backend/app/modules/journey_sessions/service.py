@@ -18,7 +18,16 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.journey_sessions.models import SavedJourney
+from app.modules.journey_sessions.models import (
+    JourneyEvent,
+    JourneySession,
+    SavedJourney,
+)
+from app.modules.journey_sessions.state_machine import (
+    InvalidTransition,
+    next_status,
+    status_for_step,
+)
 from app.modules.pedestrian.router import WalkingRouter
 from app.modules.planner import (
     Endpoint,
@@ -113,4 +122,176 @@ async def refresh_saved_journey(
     row.response = payload
     row.dataset_version_label = result.version_label
     await session.flush()
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Active journey sessions (Phase 6).
+# ---------------------------------------------------------------------------
+
+
+def _session_payload(row: JourneySession) -> dict[str, Any]:
+    """The "Do this now" payload: current step, next step, progress."""
+    steps = list(row.plan_snapshot.get("steps", []))
+    index = row.current_step_index
+    preferences = dict(row.preferences)
+    return {
+        "session_id": str(row.id),
+        "journey_id": str(row.journey_id),
+        "option_id": row.option_id,
+        "status": row.status,
+        "dataset_version": row.dataset_version_label,
+        "language": str(preferences.get("language", "en")),
+        "availability_scope": "network_feasible_not_live_confirmed",
+        "progress": {"current_step": index, "step_count": len(steps)},
+        # Current action + next action (plan item 2: "Do this now").
+        "current_step": steps[index] if index < len(steps) else None,
+        "next_step": steps[index + 1] if index + 1 < len(steps) else None,
+    }
+
+
+async def start_session(
+    session: AsyncSession, journey_id: uuid.UUID, option_id: str
+) -> dict[str, Any] | None:
+    """Start an active session from a **saved** plan option (grounded only).
+
+    Returns None when the saved journey or the option inside it does not
+    exist. The session snapshots that exact option; nothing is accepted from
+    the client that the server did not generate itself.
+    """
+    journey = await session.get(SavedJourney, journey_id)
+    if journey is None:
+        return None
+    options = list(dict(journey.response).get("options", []))
+    option = next((o for o in options if str(o.get("id")) == option_id), None)
+    if option is None:
+        return None
+
+    row = JourneySession(
+        journey_id=journey.id,
+        option_id=option_id,
+        dataset_version_label=journey.dataset_version_label,
+        origin=dict(journey.origin),
+        destination=dict(journey.destination),
+        preferences=dict(journey.preferences),
+        plan_snapshot=option,
+        status=status_for_step(list(option.get("steps", [])), 0),
+        current_step_index=0,
+    )
+    session.add(row)
+    await session.flush()
+    session.add(JourneyEvent(session_id=row.id, event_type="started", step_index=0))
+    await session.flush()
+    return _session_payload(row)
+
+
+async def get_journey_session(
+    session: AsyncSession, session_id: uuid.UUID
+) -> dict[str, Any] | None:
+    """Retrieve current session state (restore after restart/background)."""
+    row = await session.get(JourneySession, session_id)
+    return None if row is None else _session_payload(row)
+
+
+async def apply_session_event(
+    session: AsyncSession,
+    session_id: uuid.UUID,
+    event_type: str,
+    step_index: int | None,
+    note: str | None,
+) -> dict[str, Any] | None:
+    """Apply one manual progress event (caller commits).
+
+    Raises `InvalidTransition` for events the state machine rejects — the API
+    layer maps that to 409 so the client learns the rule, not just a failure.
+    """
+    row = await session.get(JourneySession, session_id)
+    if row is None:
+        return None
+
+    steps = list(row.plan_snapshot.get("steps", []))
+    index = row.current_step_index
+    if event_type == "step_advanced":
+        if step_index is None or not 0 <= step_index < len(steps):
+            raise InvalidTransition("step_advanced requires a step index inside the plan")
+        index = step_index
+    elif event_type == "resumed":
+        index = row.current_step_index
+
+    new_status = next_status(row.status, event_type, steps, index)
+    row.status = new_status
+    row.current_step_index = index
+    session.add(
+        JourneyEvent(session_id=row.id, event_type=event_type, step_index=step_index, note=note)
+    )
+    await session.flush()
+    return _session_payload(row)
+
+
+async def replan_session(
+    session: AsyncSession,
+    session_id: uuid.UUID,
+    walking_router: WalkingRouter,
+    origin_override: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Re-plan the session against the current active dataset (caller commits).
+
+    Optional `origin_override` supports missed-stop recovery ("I am now at
+    stop X"). Progress resets honestly when a new plan is found; when nothing
+    connects, the session is left untouched and the no_route plan + notes are
+    returned (`replanned: false`) — never a fabricated replacement.
+    """
+    row = await session.get(JourneySession, session_id)
+    if row is None:
+        return None
+    if row.status in ("completed", "cancelled"):
+        raise InvalidTransition(f"cannot replan a {row.status} session")
+
+    preferences = dict(row.preferences)
+    origin_payload = dict(origin_override) if origin_override else dict(row.origin)
+    network = await load_network(session)
+    planner = JourneyPlanner(network, walking_router)
+    result = await planner.plan(
+        _endpoint_from_payload(origin_payload),
+        _endpoint_from_payload(dict(row.destination)),
+        PlanningConstraints(
+            allowed_modes=frozenset(preferences.get("allowed_modes", ["bus"])) | {"walk"},
+            max_walking_m=float(preferences.get("max_walking_m", 1500.0)),
+            max_transfers=int(preferences.get("max_transfers", 1)),
+            require_verified_transfers=bool(preferences.get("require_verified_transfers", False)),
+        ),
+        priority=str(preferences.get("priority", "fastest")),
+    )
+
+    plan_payload = serialize_result(
+        result, network=network, language=str(preferences.get("language", "en"))
+    )
+    plan_payload["language"] = str(preferences.get("language", "en"))
+    if result.status != "ok":
+        # No replacement exists — the session keeps its current plan and the
+        # caller sees the honest reasons.
+        plan_payload["replanned"] = False
+        plan_payload["session_id"] = str(row.id)
+        return plan_payload
+
+    previous_version = row.dataset_version_label
+    new_option = plan_payload["options"][0]
+    row.plan_snapshot = new_option
+    row.option_id = str(new_option["id"])
+    row.dataset_version_label = result.version_label
+    row.origin = origin_payload
+    row.current_step_index = 0
+    row.status = status_for_step(list(new_option.get("steps", [])), 0)
+    session.add(
+        JourneyEvent(
+            session_id=row.id,
+            event_type="replanned",
+            step_index=0,
+            note=f"re-planned against {result.version_label}; progress reset",
+        )
+    )
+    await session.flush()
+    payload = _session_payload(row)
+    payload["replanned"] = True
+    payload["previous_dataset_version"] = previous_version
     return payload

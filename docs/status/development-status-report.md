@@ -80,7 +80,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 5 complete in code (backend instruction core + mobile results/instructions screens) · remaining: si/ta native review (D-7, owner), device runtime verification (D-5/D-9, owner) · Phase 6 next · owner field walks still pending (Phase 1/3/4 shared exit gate)**
+> **▸ CURRENT POSITION: Phase 6 backend core done in code (session state machine + manual progress + replan, live-verified) · remaining Phase 6: mobile "Do this now" screen, GPS-proximity suggestions (assistive-only), screen-awake/voice P1 items · owner field walks still pending (Phase 1/3/4 shared exit gate)**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
@@ -104,9 +104,10 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | **3 — Pedestrian routing & transfer graph** | ✅ Done* | (this phase) | Valhalla PoC + **ADR-0008 ratified**; walking adapter (`/api/v1/walking/route`); **route shapes imported for 41/45 patterns** (101 Moratuwa→Fort = 21.1 km ✓); 432 stop access points; **19 candidate transfer connectors** routed through the walking engine (51–434 m, avg 234 m) | **75/75 backend** (9 new tests); live: real reparse + candidate generation; *exit gate needs field-checked pilot paths (owner walks)* |
 | **4 — Deterministic multimodal planner** | ✅ Done* | (this phase) | Core planner (exact patterns + explicit connectors, board-before-alight, walk legs only from routed paths, constraints, rail verified-only, Pareto + labels, honest `no_route`); **plan cache** (Redis, request+version keyed, ADR-0003); **saved journeys** (`save`, `GET /journeys/{id}`, `/refresh` re-plans against active version); **performance baseline** (`docs/evidence/plan-benchmark-2026-11-22.md`: miss p95 3.5 ms, hit p95 2.0 ms on 5 representative pairs × 10 iters) | **101/101 backend** (26 new across both tasks); live: direct + 1-transfer journeys ✓, cache miss→hit ✓, save/get/refresh ✓, version-change invalidation ✓; *owner field walks + regression-suite extension remain* |
 | **5 — Instructions + itinerary UX** | ✅ Done* | (this phase) | Backend core (see 2026-11-22 record) **+ mobile screens (items 9–10)**: `journey` screen rewritten from placeholder to plan flow (stop pickers with explicit selection, `no_route` honesty, results **cards with trade-offs** — duration band labelled "network estimate", walking, transfers, label chips, confidence phrasing) and new `journey-steps` screen (ordered instruction steps verbatim from the backend templates, warnings, dataset-version + not-live footer); typed plan payloads + `planJourney()` in `lib/api.ts`; in-memory plan hand-off store | **18/18 mobile** (7 new: cards + trade-offs + hand-off, honest no_route, planning-failure error, ordered steps verbatim, no-plan state); tsc + eslint clean; *runtime device check still pending owner spike (D-5/D-9); si/ta native review pending (D-7)* |
-| 6 … 10 | ⬜ Not started | — | See §4 | — |
+| **6 — Active journey mode (backend core)** | 🔄 In progress | (this phase) | Migration `0007` (`journey_sessions` + `journey_events`, **no location storage**); pure state machine in `journey_sessions` (execution states **derived from step actions**; paused/needs_confirmation/completed/cancelled; terminal states final; progress cannot advance while paused); sessions start **only from saved server-generated plans** (grounded, never client-crafted); manual-first progress events; `GET` restores state after restart; `replan` re-plans against the active dataset with optional origin override (missed-stop recovery), honest no-replacement behaviour, progress reset only when a new plan exists | **121/121 backend** (12 new: 6 state-machine incl. invalid transitions + 6 lifecycle integration incl. 409s, restore, replan cases); live smoke: start → "Do this now" (board + next step) → advance → pause (409) → resume → complete → restore ✓; *mobile screen + GPS-assistive client work remain* |
+| 7 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **109 passed** · `ruff format --check`/`check` clean · `mypy` clean (57 files) · mobile `jest` **18 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
+**Current quality gate totals:** backend `pytest` **121 passed** · `ruff format --check`/`check` clean · `mypy` clean (59 files) · mobile `jest` **18 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
 
 ---
 
@@ -256,6 +257,16 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **Tests (7 new → 18/18)**: cards render trade-offs/labels/confidence and hand the plan to the store; `no_route` shows the backend notes and no cards; planning-failure error (only the POST fails — searches keep working); ordered steps rendered verbatim with warnings + honesty footer; no-plan state. One real bug found and fixed during testing (a duplicated leftover stylesheet broke the suite parse).
 - **Deliberately deferred**: runtime on-device verification (D-5/D-9 owner spike) and si/ta native review (D-7).
 
+### Phase 6 — backend core: active journey sessions (2026-11-22)
+
+- **Migration `0007_journey_sessions`** (applied to test + dev DBs): `journey_sessions` (journey FK → `saved_journeys` CASCADE, option id, dataset version, origin/destination/preferences for replan, `plan_snapshot` JSONB = the exact option payload, status + `current_step_index`) and append-only `journey_events` (typed, optional step index + note). **No coordinates anywhere** (data model §6: minimise location storage; sessions are anonymous until accounts exist).
+- **Pure state machine** (`state_machine.py`, one transition table): execution states are **derived from the current step's action** (WALK_TO_STOP → active_walk; BOARD/RIDE/ALIGHT → active_ride; WALK_TRANSFER → transfer_walk; WALK_TO_DESTINATION → final_walk), with explicit `paused` / `needs_confirmation` / `completed` / `cancelled`. Rules: **terminal states accept nothing**; progress cannot advance while paused (resume first); completion is always an explicit traveller event, never an implicit side effect of stepping past the last instruction. GPS has **no backend pathway** — manual progress is authoritative (plan §Phase 6: GPS assistive, not authoritative).
+- **Grounded sessions only**: `POST /journey-sessions` requires `journey_id` + `option_id` of a **saved** plan and snapshots that exact server-generated option — nothing client-crafted is executed. The response is the "Do this now" payload (plan item 2): `current_step` (action + template text), `next_step`, `progress`.
+- **Manual progress (plan items 3–4, 8)**: `POST .../events` applies `step_advanced` (arrived/boarded/alighted are step advances), `paused`, `resumed`, `completed`, `cancelled` — invalid transitions are **409 with the rule text**. `GET /journey-sessions/{id}` restores state after background/restart (exit criterion: no unexpected state loss).
+- **Replan entry points (plan item 8)**: `POST .../replan` re-plans against the **current active dataset** (cache bypassed), optionally with an `origin` override for missed-stop recovery. On success: progress honestly resets to step 0, `previous_dataset_version` recorded, `replanned` event appended. When nothing connects: `replanned: false` with the no_route reasons and the **session untouched** (dataset version and progress preserved) — never a fabricated replacement. Replanning a completed/cancelled session is 409.
+- **Tests (12 new)**: 6 state-machine unit tests (derived states, pause/resume roundtrip, terminal-state rejection, no-advance-while-paused, unknown state) + 6 integration tests over the real endpoints (full manual lifecycle to completion, 409s, restore, grounded-start 404s, replan version change with progress reset, origin override, honest no-replacement, completed-session 409).
+- **Deliberately deferred within Phase 6**: mobile "Do this now" screen (follow-up bounded task); GPS proximity suggestions with accuracy/dwell safeguards (plan item 5 — client-side only, and only ever as *suggestions* requiring manual confirmation, `needs_confirmation` state reserved); screen-awake option and voice/read-aloud (plan items 6–7, voice blocked on D-7 native review).
+
 
 
 
@@ -343,6 +354,21 @@ curl -X POST http://localhost:8000/api/v1/journeys/plan \
 #   POST /api/v1/journeys/{journey_id}/refresh   → re-plan vs active version (refreshed, previous_dataset_version)
 python scripts/plan_benchmark.py [--pairs 5] [--iterations 10]   # performance baseline → docs/evidence/
 
+# 2e. Active journey sessions (Phase 6)
+# Save a plan first ("save": true on /journeys/plan → journey_id), then:
+curl -X POST http://localhost:8000/api/v1/journey-sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"journey_id":"<uuid>","option_id":"option-1"}'
+#   → {"status":"active_ride|active_walk|...","progress":{...},"current_step":{...},"next_step":{...}}
+curl -X POST http://localhost:8000/api/v1/journey-sessions/{id}/events \
+  -H 'Content-Type: application/json' \
+  -d '{"event_type":"step_advanced","step_index":1}'
+#   → updated state; invalid transitions → 409 with the rule; paused/completed/cancelled also via events
+curl http://localhost:8000/api/v1/journey-sessions/{id}            # restore after restart
+curl -X POST http://localhost:8000/api/v1/journey-sessions/{id}/replan \
+  -H 'Content-Type: application/json' -d '{"origin":{"type":"stop","stop_id":"<uuid>"}}'
+#   → {"replanned":true,...} (progress reset) or {"replanned":false,"status":"no_route","notes":[...]}
+
 # 3. Mobile gates (from apps/mobile/)
 cd apps/mobile; npm ci
 npm run lint        # → 0 problems
@@ -367,6 +393,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-22: Phase 4 completion — migration `0006_saved_journeys` applied to the dev DB; live smoke: plan cache `miss → hit` on identical requests, `save: true` on a cache hit persists an identical snapshot (`journey_id` returned), `GET /journeys/{id}` returns the snapshot with `saved_at_dataset_version`, `/refresh` re-plans (`refreshed: true`, previous/current version labels), unknown ID → 404; performance baseline measured (`plan_benchmark.py`): **miss p95 3.5 ms / p50 0.2 ms, Redis hit p95 2.0 ms / p50 0.9 ms** → targets in `docs/evidence/plan-benchmark-2026-11-22.md`; backend gates **101/101** (9 new), ruff/format/mypy clean; dev DB intact (432 stops).
 - 2026-11-22: Phase 5 backend core — live: Kollupitiya→Colombo Fort renders ordered steps — "Board route 101 at Kollupitiya Junction halt heading towards Colombo Fort." → "Stay on route 101 and alight at Colombo Fort." (intermediate-stop count **honestly withheld**: the OSM relation's sequence has gaps, `facts.intermediate_stops = "not confirmed"`) → "Alight at Colombo Fort."; `language: si` falls back to English with the D-7 native-review note; cache keys include language (en/si never cross-served). Backend gates **109/109** (9 new), ruff/format/mypy clean, run twice consecutively; dev DB intact (432 stops).
 - 2026-11-22: Phase 5 mobile — `npm test` **18/18** (7 new), `tsc --noEmit` clean, `expo lint` clean; screens: journey (plan + results cards with trade-offs and honest `no_route`) and journey-steps (verbatim ordered instructions + honesty footer). Device runtime check remains pending the owner's dev-client spike (D-5/D-9).
+- 2026-11-22: Phase 6 backend core — migration `0007_journey_sessions` applied to the dev DB; live smoke against the real network: plan saved (3 steps) → session started ("Do this now": "Board route 101 at Kollupitiya Junction halt heading towards Colombo Fort." + next step) → step advance → pause (advance attempt → **409** "event 'step_advanced' is not allowed from 'paused'") → resume → complete → GET restores `completed`. Backend gates **121/121** (12 new), ruff/format/mypy clean; dev DB intact (432 stops; session/event rows from the smoke remain as dev data).
 
 ---
 
@@ -448,8 +475,16 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [ ] Owner device runtime check of the journey flow (D-5/D-9 spike) and si/ta native review (D-7)
 - [ ] Owner field walks (shared exit gate) — verified facts will upgrade instruction details (access-point names, landmarks, entrances)
 
-**Phase 6 — Active journey mode; Phase 7 — Offline/recovery/reports; Phase 8 — Grounded AI; Phase 9 — Pilot hardening/release; Phase 10 — Expansion**
-- [ ] As specified in §4 / implementation plan (sequential gates)
+**Phase 6 — Active journey mode and progress management:**
+- [x] Journey state machine (pure, single transition table): execution states derived from step actions; paused / needs_confirmation / completed / cancelled; terminal states final; invalid transitions rejected
+- [x] "Do this now" payload: current action + next action + progress, from a **server-saved** plan snapshot (grounded sessions only)
+- [x] Progress by step via manual events (arrived/boarded/alighted/advanced, pause, complete, cancel); GET restores state after background/restart
+- [x] Replan entry points: same-OD replan against the active dataset + origin override for missed-stop recovery; honest no-replacement behaviour
+- [x] Session data minimised: no location history stored (data model §6); anonymous sessions pending accounts
+- [ ] Mobile "Do this now" screen (start/pause/resume/complete UI over the session endpoints) — next bounded task
+- [ ] GPS proximity suggestions with accuracy + dwell safeguards (client-side only; `needs_confirmation` state reserved; never auto-advances a critical step)
+- [ ] Screen-awake option under user control; voice/read-aloud (P1 — blocked on D-7 native review)
+- [ ] Owner field walks (shared exit gate)
 
 **Standing obligations on every task:** update this report (§1 protocol); run gates; never invent transport facts; ADRs for material architecture changes.
 
@@ -463,8 +498,9 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - Phase 3 additions (all `unverified`): **41 route shapes** from OSM member ways (4 patterns lack geometry — truncated island-wide relations; one shape spans 112 km for that reason and must not be trusted as a service path until checked), **432 default stop access points** located at the mapped stop nodes (the real roadside position is unknown), and **19 candidate transfer connectors** with routed walking paths (never straight-line estimates; never auto-verified).
 - Phase 4 planner honesty: journeys are **network-feasible, not live-confirmed** (`availability_scope` says so); in-vehicle times are a labelled conservative band (12–18 km/h over a 1.4× detour-allowed network distance), **not timetable data**; every option carries the pattern's/connector's verification state (`unverified_pattern` / `unverified_transfer`) and the static-service caveat; planner rides only in the captured direction of each pattern (a one-directional OSM relation cannot serve the reverse journey — it returns an explained `no_route`, not a fabricated reverse ride); walking legs are never estimated from straight-line distance. Plan caching (ADR-0003) never changes a result: keys embed the dataset version, Redis loss degrades to recompute, and saved journeys are retrieval-only snapshots with explicit re-plan via `/refresh`.
 - Phase 5 instruction honesty: templates emit **only values present in the structured facts** — a missing headsign is never replaced by an invented destination, and intermediate-stop counts appear only when the ordered sequence numbers are contiguous (live example: route 101 Kollupitiya→Fort withholds the count because the OSM relation's member sequence has gaps). si/ta requests currently receive English text with an explicit "native review pending" note — no machine translation is presented as reviewed. No step text contains live-availability, waiting-time or fare language.
+- Phase 6 session honesty: active journeys are **manual-first** — the backend has no GPS pathway at all, so no server state can change from a location signal; sessions execute only **server-generated** plan snapshots (nothing client-crafted is executed); completion is an explicit traveller action, never implicit; replanning honestly resets progress only when a replacement plan actually exists and otherwise preserves the session untouched with the reasons; **no location data is stored** on sessions or events, and sessions are anonymous until accounts exist.
 - Known data gaps (recorded in the committed QA report `backend/data/validation_reports/osm-overpass-1679d061.md`): patterns with unresolvable stop calls, no agency attributions, no shapes, no transfer connectors, no verified anything — all awaiting field verification (D-3) and/or additional sources. 37 unresolved records include WP-edge members and long-distance relations whose member geometry extends island-wide.
 
 ---
 
-*End of report. Next update: Phase 6 (active journey mode) start, or after the owner field walks / device spike.*
+*End of report. Next update: Phase 6 mobile "Do this now" screen, or after the owner field walks / device spike.*

@@ -70,6 +70,8 @@ def _migrate_test_database() -> Iterator[None]:
 # (API-level tests commit; service/schema tests roll back transactions).
 _CLEANUP_ORDER: tuple[str, ...] = (
     "DELETE FROM active_dataset",
+    "DELETE FROM journey_events",
+    "DELETE FROM journey_sessions",
     "DELETE FROM saved_journeys",
     "DELETE FROM dataset_version_entities",
     "DELETE FROM data_change_audit",
