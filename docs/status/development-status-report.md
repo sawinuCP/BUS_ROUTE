@@ -80,7 +80,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 3 complete in code (PoC + adapter + shapes + access points + 19 candidate transfer connectors) · remaining Phase 3 gate: owner field walks verifying pilot paths · Phase 4 next**
+> **▸ CURRENT POSITION: Phase 4 core done in code (deterministic planner + `POST /journeys/plan`, live-verified against real WP data) · remaining: plan cache, saved journeys, Phase 4 regression suite extension · Phase 3 owner field walks still pending (exit gate)**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
@@ -102,9 +102,10 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 1.4 Coverage scorecard + field-verification workflow | ✅ Done | `5d31006` | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
 | 2 Place search + local names + map | ✅ Done* | (this phase) | Trigram search over aliases (en/si/ta) + canonical names; `GET /places/search`, `GET /stops?bbox=`, reverse-geocode adapter (none configured — honest); mobile search UI + manual-coordinate fallback; migration `0005` | **60/60 backend** · **11/11 mobile** · live: 'pettah' → stop hit, '176' → route hit, bbox → 54 stops; *MapLibre screen pending device spike* |
 | **3 — Pedestrian routing & transfer graph** | ✅ Done* | (this phase) | Valhalla PoC + **ADR-0008 ratified**; walking adapter (`/api/v1/walking/route`); **route shapes imported for 41/45 patterns** (101 Moratuwa→Fort = 21.1 km ✓); 432 stop access points; **19 candidate transfer connectors** routed through the walking engine (51–434 m, avg 234 m) | **75/75 backend** (9 new tests); live: real reparse + candidate generation; *exit gate needs field-checked pilot paths (owner walks)* |
-| 4 … 10 | ⬜ Not started | — | See §4 | — |
+| **4 — Deterministic multimodal planner (core)** | 🔄 In progress | (this phase) | Planner module (`app/modules/planner/`): immutable network snapshot over exact patterns + **explicit** connectors; direct/multi-leg candidates with board-before-alight enforced; walk legs only from the routed engine; constraints (modes, walk cap, transfer cap, verified-transfer rule); rail only with verified station order; dedup + Pareto + ranking labels; honest `no_route` reasons; walking-only fallback; `POST /journeys/plan` | **92/92 backend** (17 new); live: Kollupitiya→Fort direct (101, 12.5–18.7 min band) and Willium Junction→Narahenpita 1-transfer via stored 142 m connector ✓; *remaining: plan cache (item 13), saved-journey endpoints, curated suite extension* |
+| 5 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **75 passed** · `ruff format --check`/`check` clean · `mypy` clean · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
+**Current quality gate totals:** backend `pytest` **92 passed** · `ruff format --check`/`check` clean · `mypy` clean (51 files) · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
 
 ---
 
@@ -217,6 +218,17 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **Candidate transfer connectors generated** (`backend/app/modules/transfers/service.py` + script): proximity *proposals* (≤300 m, both stops served by ≥1 pattern, **no shared pattern**) routed through the walking engine into `transfer_connections` with real distance/duration/geometry — **19 candidates committed (51–434 m, avg 234 m), all `unverified`**, provenance recorded on a derived data source `walking-engine-derived` (ODbL-derived). Rule honored: proximity proposes; a *routed pedestrian path* is the explicit connector; only the moderation/field flow can verify or promote anything (data model doc §3).
 - **Overpass was down** during the live import (both primary and mirror; I-23): the honest fallback was `reparse_latest_snapshot.py` — the **archived checksum-verified snapshot** re-parsed with adapter 0.2.0 into candidate version `osm-overpass-1679d061` (1083 records: 473 added / 573 unchanged / 37 failed — same unresolved records as always), recorded as a dedicated SyncRun with `parser_version='0.2.0-reparse'` and a validation-summary reparse note. Provenance exact: every new fact links to the same archived bytes it was parsed from.
 
+### Phase 4 — core: deterministic multimodal planner (2026-11-20)
+
+- **New canonical module `app/modules/planner/`** (no FastAPI/SQLAlchemy/Valhalla imports in domain code): `network.py` loads an immutable snapshot — patterns with ordered calls, stops with access points, **explicit** `transfer_connections` only (normalised both directions), version label from `active_dataset` (ADR-0006; falls back to newest dataset version so the unpublished candidate can be planned against in the pilot, honestly labelled).
+- **Candidate generation** (`service.py`): bounded breadth-first expansion — ride edges only on exact patterns with **board-before-alight enforced** against the ordered calls and boarding/alighting flags honoured; moves between patterns only via stored connectors (never proximity) or a same-stop re-board (zero walk — you change buses where you stand; not a connector claim); anti-loop rules (no same-stop re-board of the bus just left; visited (stop, depth) pruning). **Walk legs exist only when the walking engine routed them** (`None` → candidate dropped with an honest note — never straight-line).
+- **Constraints (plan items 8, 7, 12)**: allowed modes, max total walking (sum of all walk legs), max transfers (0–3), `require_verified_transfers` (excludes unverified connectors); **rail rides require `verification_status='verified'`** (station order) — unverified rail is excluded with an explanatory note, never ridden. `no_route` returns the reasons (no stops within walk cap, walking-only exceeds cap, rail excluded, etc.).
+- **Alternatives (plan items 9–10)**: dedup by route/stop-chain signature; **Pareto filter** on (duration_max, walk_distance, transfers) removing only strictly dominated candidates; ranking labels `fastest / least_walking / fewest_transfers / simplest` computed from the final set (label always matches its metric).
+- **Estimates (routing doc §5)**: walking time/distance from the routed engine or stored connectors; **in-vehicle time = network distance (straight-line × 1.4 detour allowance) ÷ explicit speed band 12–18 km/h**, returned as a `{min, max}` band and labelled "not timetable data; waiting times unknown". No fabricated waiting/arrival claims.
+- **API**: `POST /api/v1/journeys/plan` (API design doc §example): origin/destination as `stop` or `coordinates`, preferences (priority, caps, modes, verified-transfer rule); response carries `dataset_version`, `availability_scope: network_feasible_not_live_confirmed`, per-option warnings/confidence and instruction codes. `no_route` is a 200 with reasons.
+- **Tests (17 new)**: 8 unit (Pareto dominance/trade-offs, label-vs-metric, deterministic tie-break, dedup, estimate band, haversine) + 9 integration on a seeded network (direct with board<alight, explicit-connector transfer + verified-transfer exclusion, same-stop re-board, walk cap, honest no-route, walking-only fallback, verified-rail rule, determinism, endpoint contract).
+- **Deliberately deferred to a follow-up bounded task** (Phase 4 remains in progress): plan cache keyed by normalised request + network version (item 13, ADR-0003 scope), saved journeys/refresh endpoints, fare ranking (item 11, no fare evidence), and extension of the curated OD regression suite to the full enumerated case list.
+
 
 
 
@@ -293,6 +305,12 @@ python scripts/write_qa_report.py        # regenerate the committed QA report
 python scripts/generate_transfer_candidates.py [--dry-run] [--radius-m 300]
 #   → proposal-only transfer connectors (unverified) via the walking engine
 
+# 2d. Journey planning (Phase 4)
+curl -X POST http://localhost:8000/api/v1/journeys/plan \
+  -H 'Content-Type: application/json' \
+  -d '{"origin":{"type":"stop","stop_id":"<uuid>"},"destination":{"type":"stop","stop_id":"<uuid>"},"preferences":{"priority":"fastest","max_walking_m":1500,"max_transfers":1}}'
+#   → {"status":"ok","dataset_version":"...","options":[...]} or {"status":"no_route","notes":[reasons]}
+
 # 3. Mobile gates (from apps/mobile/)
 cd apps/mobile; npm ci
 npm run lint        # → 0 problems
@@ -313,6 +331,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: Field-kit refresh — exports regenerated for WP (`data/field-verification/exports/`: 432 stops → 57 tier-A / 375 tier-B; 45 patterns; 0 transfers); XLSForm built (`forms/stop_verification.xlsx`, openpyxl read-back verified: survey 17 rows, choices 12 rows); backend gates 60/60, dev DB intact after run.
 - 2026-11-20: Phase 3 work item 1 — Valhalla tiles built from the SL snapshot (~9 min, exit 0; 125.9 MB extract); 4/4 PoC routes between real pilot stops succeeded (Fort→Bambalapitiya 5.42 km/16 maneuvers; warm latency 52–260 ms); `GET /api/v1/walking/route` live through the backend adapter (status ok, 5,418 m, 16 steps); backend gates **66/66**, mypy/ruff/format clean; evidence in `docs/evidence/valhalla-poc-2026-11-20.md` (+ committed sample JSON); ADR-0008 ratified (D-10).
 - 2026-11-20: Phase 3 items 2–3 — three live Overpass fetch attempts failed (I-23); **archived snapshot reparse** imported adapter 0.2.0 output into `osm-overpass-1679d061`: **41 route shapes** (101 = 21,098 m, 154 = 18,794 m — reality-checked), **432 stop access points**, 473 added / 573 unchanged / 37 failed (unchanged failure set). `generate_transfer_candidates.py` routed **19 candidate connectors** through the real Valhalla service (51–434 m, avg 234 m, all unverified, none straight-line). QA report regenerated (committed); backend gates **75/75**, mypy/ruff/format clean; dev DB still 432 stops / 1 OSM source + 1 derived source.
+- 2026-11-20: Phase 4 core — `POST /api/v1/journeys/plan` live against the real dev network: **Kollupitiya→Colombo Fort** direct on route 101 (0 transfers, 0 walking, 12.5–18.7 min band, confidence `unverified_pattern`) and **Willium Junction→Narahenpita** one-transfer (101 → stored 142 m connector walk → 141, 20.7–30.2 min, confidence `unverified_transfer`); Fort→Kollupitiya correctly returns `no_route` (the OSM relation only captured the Moratuwa→Fort direction — riding backwards is refused, board-before-alight held). Backend gates **92/92** (17 new), ruff/format/mypy clean; dev DB intact (432 stops).
 
 ---
 
@@ -372,9 +391,12 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [ ] **Owner field walks** verifying pilot transfer paths and access points (shared with the Phase 1 exit gate) — this is the remaining Phase 3 exit criterion
 
 **Phase 4 — Deterministic multimodal planner:**
-- [ ] Graph interfaces over route patterns + explicit transfers; direct/multi-leg candidate generation
-- [ ] Constraints (walk cap, transfer cap, modes, confidence threshold); Pareto filtering; ranking profiles
-- [ ] Curated routing regression suite; cache keyed by dataset version; no-route/low-coverage outcomes
+- [x] Graph interfaces over route patterns + explicit transfers; direct/multi-leg candidate generation (deterministic, bounded; board-before-alight enforced)
+- [x] Constraints (walk cap, transfer cap, modes, verified-transfer rule; rail only with verified station order); Pareto filtering; ranking profiles (labels computed from the returned set)
+- [x] `POST /api/v1/journeys/plan` — honest `no_route` reasons, walking-only fallback, walking legs only from routed paths
+- [ ] Plan cache keyed by normalised request + network version (item 13); saved-journey endpoints; fare ranking (needs fare evidence)
+- [ ] Curated routing regression suite extended to the full enumerated case list (bus-rail, rail-bus, ambiguous-stop cases); performance baseline vs representative pilot queries
+- [ ] Owner field walks (Phase 3 gate) — connector candidates feed the planner only as `unverified_transfer` until verified
 
 **Phase 5 — Instructions and itinerary experience:**
 - [ ] Deterministic instruction templates per step type (unknowns rendered as "not confirmed")
@@ -393,8 +415,9 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - Every imported fact carries `verification_status = 'unverified'`. No timetable, live-availability, fare, or accessibility claims exist or may be made.
 - Coverage figures (**432 stops / 38 routes / 45 patterns**) describe **imported data within the bbox**, not service reality; OSM does not guarantee operational status or complete sequences.
 - Phase 3 additions (all `unverified`): **41 route shapes** from OSM member ways (4 patterns lack geometry — truncated island-wide relations; one shape spans 112 km for that reason and must not be trusted as a service path until checked), **432 default stop access points** located at the mapped stop nodes (the real roadside position is unknown), and **19 candidate transfer connectors** with routed walking paths (never straight-line estimates; never auto-verified).
+- Phase 4 planner honesty: journeys are **network-feasible, not live-confirmed** (`availability_scope` says so); in-vehicle times are a labelled conservative band (12–18 km/h over a 1.4× detour-allowed network distance), **not timetable data**; every option carries the pattern's/connector's verification state (`unverified_pattern` / `unverified_transfer`) and the static-service caveat; planner rides only in the captured direction of each pattern (a one-directional OSM relation cannot serve the reverse journey — it returns an explained `no_route`, not a fabricated reverse ride); walking legs are never estimated from straight-line distance.
 - Known data gaps (recorded in the committed QA report `backend/data/validation_reports/osm-overpass-1679d061.md`): patterns with unresolvable stop calls, no agency attributions, no shapes, no transfer connectors, no verified anything — all awaiting field verification (D-3) and/or additional sources. 37 unresolved records include WP-edge members and long-distance relations whose member geometry extends island-wide.
 
 ---
 
-*End of report. Next update: Phase 4 (deterministic multimodal planner) start, or after the owner field walks.*
+*End of report. Next update: Phase 4 completion (plan cache, saved journeys, regression-suite extension), or after the owner field walks.*
