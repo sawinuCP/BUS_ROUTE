@@ -360,6 +360,35 @@ async def test_planning_is_deterministic(
     assert first.notes == second.notes
 
 
+async def test_multi_transfer_chain_within_transfer_cap(
+    db_conn: AsyncConnection, db_session: AsyncSession
+) -> None:
+    """max_transfers=2 allows an A → C → F → D chain (same-stop re-boards)."""
+    ids = await _seed_base(db_conn)
+    await _add_pattern(db_conn, ids, "138", [("A", 1), ("C", 2)])
+    await _add_pattern(db_conn, ids, "100", [("C", 1), ("F", 2)])
+    await _add_pattern(db_conn, ids, "120", [("F", 1), ("D", 2)])
+    network = await load_network(db_session)
+    planner = JourneyPlanner(network, FakeWalkingRouter())
+
+    two = PlanningConstraints(max_transfers=2)
+    result = await planner.plan(_stop("A", ids), _stop("D", ids), two)
+
+    assert result.status == "ok"
+    assert len(result.options) == 1
+    option = result.options[0]
+    assert option.ride_count == 3
+    assert option.transfer_count == 2
+    assert [leg.route_code for leg in option.legs] == ["138", "100", "120"]
+    # Board-before-alight held across the whole chain.
+    assert all(leg.board_sequence < leg.alight_sequence for leg in option.legs)
+
+    # The same request with the default cap (1) must not produce this journey.
+    one = PlanningConstraints()
+    capped = await planner.plan(_stop("A", ids), _stop("D", ids), one)
+    assert capped.status == "no_route"
+
+
 async def test_plan_endpoint_contract() -> None:
     """API contract: POST /journeys/plan returns versioned, honest options.
 

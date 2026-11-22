@@ -25,6 +25,7 @@ from app.modules.planner.itinerary import (
     rank_labels,
 )
 from app.modules.planner.network import TransitNetwork, load_network
+from app.modules.planner.serialize import serialize_leg, serialize_result
 from app.modules.planner.service import (
     PRIORITIES,
     PRIORITY_DEFAULT,
@@ -50,4 +51,6 @@ __all__ = [
     "load_network",
     "pareto_filter",
     "rank_labels",
+    "serialize_leg",
+    "serialize_result",
 ]

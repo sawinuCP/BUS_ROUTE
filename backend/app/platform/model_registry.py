@@ -6,6 +6,7 @@ Canonical module ownership (ADR-0001):
 - transport: agencies, routes, patterns, stops, access points, sequences, shapes, transfers, fares
 - places: localities, places, access points, entity aliases
 - data_quality: verification records, change audit
+- journey_sessions: saved journeys (plan snapshots)
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ def import_all_models() -> None:
     """Import every module's models so they register on Base.metadata."""
     from app.modules.data_ingestion import models as data_ingestion_models  # noqa: F401
     from app.modules.data_quality import models as data_quality_models  # noqa: F401
+    from app.modules.journey_sessions import models as journey_models  # noqa: F401
     from app.modules.places import models as places_models  # noqa: F401
     from app.modules.transport import models as transport_models  # noqa: F401
 

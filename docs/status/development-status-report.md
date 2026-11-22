@@ -80,7 +80,7 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 
 ## 5. Status dashboard (current position)
 
-> **▸ CURRENT POSITION: Phase 4 core done in code (deterministic planner + `POST /journeys/plan`, live-verified against real WP data) · remaining: plan cache, saved journeys, Phase 4 regression suite extension · Phase 3 owner field walks still pending (exit gate)**
+> **▸ CURRENT POSITION: Phase 4 complete in code (planner + `POST /journeys/plan` + plan cache + saved journeys + performance baseline, live-verified) · remaining Phase 4 exit gates: owner field walks (Phase 3 shared), full regression-suite extension, dataset publication flow · Phase 5 next**
 >
 > **Owner decisions 2026-11-20:** pilot candidate stays **unpublished** (D-1=A); pilot corridor **central Colombo** ratified (D-2=A); D-4–D-7 deferred by owner.
 > **D-3 resolved (2026-11-20):** three-tier field-verification approach **adopted** (`docs/research/field-verification-approach.md`); Tier-1 tooling default = **KoboToolbox free hosting**; field staffing = **owner with smartphone** (single-person workflow supported).
@@ -102,10 +102,10 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 | 1.4 Coverage scorecard + field-verification workflow | ✅ Done | `5d31006` | Coverage scorecard (17 routes, avg 23/100); QA review queue (35 items); ODK form kit + export/import scripts; verification recording API | **51/51 tests**; live: scorecard/queue/exports generated against pilot data |
 | 2 Place search + local names + map | ✅ Done* | (this phase) | Trigram search over aliases (en/si/ta) + canonical names; `GET /places/search`, `GET /stops?bbox=`, reverse-geocode adapter (none configured — honest); mobile search UI + manual-coordinate fallback; migration `0005` | **60/60 backend** · **11/11 mobile** · live: 'pettah' → stop hit, '176' → route hit, bbox → 54 stops; *MapLibre screen pending device spike* |
 | **3 — Pedestrian routing & transfer graph** | ✅ Done* | (this phase) | Valhalla PoC + **ADR-0008 ratified**; walking adapter (`/api/v1/walking/route`); **route shapes imported for 41/45 patterns** (101 Moratuwa→Fort = 21.1 km ✓); 432 stop access points; **19 candidate transfer connectors** routed through the walking engine (51–434 m, avg 234 m) | **75/75 backend** (9 new tests); live: real reparse + candidate generation; *exit gate needs field-checked pilot paths (owner walks)* |
-| **4 — Deterministic multimodal planner (core)** | 🔄 In progress | (this phase) | Planner module (`app/modules/planner/`): immutable network snapshot over exact patterns + **explicit** connectors; direct/multi-leg candidates with board-before-alight enforced; walk legs only from the routed engine; constraints (modes, walk cap, transfer cap, verified-transfer rule); rail only with verified station order; dedup + Pareto + ranking labels; honest `no_route` reasons; walking-only fallback; `POST /journeys/plan` | **92/92 backend** (17 new); live: Kollupitiya→Fort direct (101, 12.5–18.7 min band) and Willium Junction→Narahenpita 1-transfer via stored 142 m connector ✓; *remaining: plan cache (item 13), saved-journey endpoints, curated suite extension* |
+| **4 — Deterministic multimodal planner** | ✅ Done* | (this phase) | Core planner (exact patterns + explicit connectors, board-before-alight, walk legs only from routed paths, constraints, rail verified-only, Pareto + labels, honest `no_route`); **plan cache** (Redis, request+version keyed, ADR-0003); **saved journeys** (`save`, `GET /journeys/{id}`, `/refresh` re-plans against active version); **performance baseline** (`docs/evidence/plan-benchmark-2026-11-22.md`: miss p95 3.5 ms, hit p95 2.0 ms on 5 representative pairs × 10 iters) | **101/101 backend** (26 new across both tasks); live: direct + 1-transfer journeys ✓, cache miss→hit ✓, save/get/refresh ✓, version-change invalidation ✓; *owner field walks + regression-suite extension remain* |
 | 5 … 10 | ⬜ Not started | — | See §4 | — |
 
-**Current quality gate totals:** backend `pytest` **92 passed** · `ruff format --check`/`check` clean · `mypy` clean (51 files) · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
+**Current quality gate totals:** backend `pytest` **101 passed** · `ruff format --check`/`check` clean · `mypy` clean (56 files) · mobile `jest` **11 passed** · mobile `tsc --noEmit` + `eslint` clean · Docker stack healthy (postgres/redis/backend/valhalla).
 
 ---
 
@@ -229,6 +229,14 @@ Canonical phase numbering: `docs/product/11_IMPLEMENTATION_PLAN.md` §7 (Phases 
 - **Tests (17 new)**: 8 unit (Pareto dominance/trade-offs, label-vs-metric, deterministic tie-break, dedup, estimate band, haversine) + 9 integration on a seeded network (direct with board<alight, explicit-connector transfer + verified-transfer exclusion, same-stop re-board, walk cap, honest no-route, walking-only fallback, verified-rail rule, determinism, endpoint contract).
 - **Deliberately deferred to a follow-up bounded task** (Phase 4 remains in progress): plan cache keyed by normalised request + network version (item 13, ADR-0003 scope), saved journeys/refresh endpoints, fare ranking (item 11, no fare evidence), and extension of the curated OD regression suite to the full enumerated case list.
 
+### Phase 4 — completion: plan cache, saved journeys, performance baseline (2026-11-22)
+
+- **Plan cache (item 13, ADR-0003 scope honored)**: `app/modules/planner/cache.py` defines the structural `PlanCache` port + `NullPlanCache` + the normalized-request key builder (canonical sorted JSON + **network version label** — a version change produces a new key, so invalidation is immediate and old entries can only age out, never serve a new network); `app/platform/plan_cache.py` is the Redis adapter (best-effort reads/writes, **every failure degrades to a miss** — losing Redis never changes a routing result). TTL default 3600 s (`PLAN_CACHE_TTL_SECONDS`). Route handler returns `cache: hit|miss`.
+- **Saved journeys** (`journey_sessions` module; migration `0006_saved_journeys`): `POST /journeys/plan` with `"save": true` persists the exact request + response snapshot (anonymous — no account required, per product rule; user association is Phase 6); `GET /journeys/{journey_id}` returns the stored snapshot with `saved_at_dataset_version` (never re-derives); `POST /journeys/{journey_id}/refresh` **re-plans against the current active dataset version** (cache bypassed) and returns `refreshed: true` with `previous_dataset_version` so callers see what changed; unknown IDs → 404 error envelope. Save works on both cache miss and cache hit (snapshot identical either way).
+- **Performance baseline (exit criterion)**: `backend/scripts/plan_benchmark.py` measures representative stop-to-stop pairs (ends of the longest patterns) in-process. Observed on `osm-overpass-1679d061` (432 stops, 9 patterns with ordered calls, 38 connectors): **cache-miss p95 3.5 ms / p50 0.2 ms; Redis hit p95 2.0 ms / p50 0.9 ms**. Targets recorded in `docs/evidence/plan-benchmark-2026-11-22.md` (miss-p95 doubling = regression alert; hit p95 < 20 ms; coordinate endpoints budget Valhalla separately). Honest caveat recorded: the network is small because most imported patterns have incomplete ordered-call sequences (QA-diagnosed OSM gap) — re-measure at island scale.
+- **Regression additions**: multi-transfer chain test (2 transfers across 3 patterns with the cap enforced — 1-transfer cap returns `no_route` for the same OD), cache hit/version-change invalidation, save/get/refresh flow incl. 404.
+- **Live verification**: cache `miss → hit` on identical requests; saved journey created on a cache hit (snapshot identical), `GET` snapshot matches, `refresh` re-plans and reports versions; unknown ID → 404.
+
 
 
 
@@ -309,7 +317,11 @@ python scripts/generate_transfer_candidates.py [--dry-run] [--radius-m 300]
 curl -X POST http://localhost:8000/api/v1/journeys/plan \
   -H 'Content-Type: application/json' \
   -d '{"origin":{"type":"stop","stop_id":"<uuid>"},"destination":{"type":"stop","stop_id":"<uuid>"},"preferences":{"priority":"fastest","max_walking_m":1500,"max_transfers":1}}'
-#   → {"status":"ok","dataset_version":"...","options":[...]} or {"status":"no_route","notes":[reasons]}
+#   → {"status":"ok","dataset_version":"...","options":[...],"cache":"miss|hit"} or {"status":"no_route","notes":[reasons]}
+# Add "save": true → response includes journey_id; then:
+#   GET  /api/v1/journeys/{journey_id}           → stored snapshot + saved_at_dataset_version
+#   POST /api/v1/journeys/{journey_id}/refresh   → re-plan vs active version (refreshed, previous_dataset_version)
+python scripts/plan_benchmark.py [--pairs 5] [--iterations 10]   # performance baseline → docs/evidence/
 
 # 3. Mobile gates (from apps/mobile/)
 cd apps/mobile; npm ci
@@ -332,6 +344,7 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - 2026-11-20: Phase 3 work item 1 — Valhalla tiles built from the SL snapshot (~9 min, exit 0; 125.9 MB extract); 4/4 PoC routes between real pilot stops succeeded (Fort→Bambalapitiya 5.42 km/16 maneuvers; warm latency 52–260 ms); `GET /api/v1/walking/route` live through the backend adapter (status ok, 5,418 m, 16 steps); backend gates **66/66**, mypy/ruff/format clean; evidence in `docs/evidence/valhalla-poc-2026-11-20.md` (+ committed sample JSON); ADR-0008 ratified (D-10).
 - 2026-11-20: Phase 3 items 2–3 — three live Overpass fetch attempts failed (I-23); **archived snapshot reparse** imported adapter 0.2.0 output into `osm-overpass-1679d061`: **41 route shapes** (101 = 21,098 m, 154 = 18,794 m — reality-checked), **432 stop access points**, 473 added / 573 unchanged / 37 failed (unchanged failure set). `generate_transfer_candidates.py` routed **19 candidate connectors** through the real Valhalla service (51–434 m, avg 234 m, all unverified, none straight-line). QA report regenerated (committed); backend gates **75/75**, mypy/ruff/format clean; dev DB still 432 stops / 1 OSM source + 1 derived source.
 - 2026-11-20: Phase 4 core — `POST /api/v1/journeys/plan` live against the real dev network: **Kollupitiya→Colombo Fort** direct on route 101 (0 transfers, 0 walking, 12.5–18.7 min band, confidence `unverified_pattern`) and **Willium Junction→Narahenpita** one-transfer (101 → stored 142 m connector walk → 141, 20.7–30.2 min, confidence `unverified_transfer`); Fort→Kollupitiya correctly returns `no_route` (the OSM relation only captured the Moratuwa→Fort direction — riding backwards is refused, board-before-alight held). Backend gates **92/92** (17 new), ruff/format/mypy clean; dev DB intact (432 stops).
+- 2026-11-22: Phase 4 completion — migration `0006_saved_journeys` applied to the dev DB; live smoke: plan cache `miss → hit` on identical requests, `save: true` on a cache hit persists an identical snapshot (`journey_id` returned), `GET /journeys/{id}` returns the snapshot with `saved_at_dataset_version`, `/refresh` re-plans (`refreshed: true`, previous/current version labels), unknown ID → 404; performance baseline measured (`plan_benchmark.py`): **miss p95 3.5 ms / p50 0.2 ms, Redis hit p95 2.0 ms / p50 0.9 ms** → targets in `docs/evidence/plan-benchmark-2026-11-22.md`; backend gates **101/101** (9 new), ruff/format/mypy clean; dev DB intact (432 stops).
 
 ---
 
@@ -394,8 +407,11 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - [x] Graph interfaces over route patterns + explicit transfers; direct/multi-leg candidate generation (deterministic, bounded; board-before-alight enforced)
 - [x] Constraints (walk cap, transfer cap, modes, verified-transfer rule; rail only with verified station order); Pareto filtering; ranking profiles (labels computed from the returned set)
 - [x] `POST /api/v1/journeys/plan` — honest `no_route` reasons, walking-only fallback, walking legs only from routed paths
-- [ ] Plan cache keyed by normalised request + network version (item 13); saved-journey endpoints; fare ranking (needs fare evidence)
-- [ ] Curated routing regression suite extended to the full enumerated case list (bus-rail, rail-bus, ambiguous-stop cases); performance baseline vs representative pilot queries
+- [x] Plan cache keyed by normalized request + network version (ADR-0003; Redis adapter degrades to recompute; version change invalidates) — item 13
+- [x] Saved journeys: save/get snapshot + `/refresh` re-plan against the active version (migration `0006`; anonymous pending Phase 6 accounts)
+- [x] Performance baseline vs representative pilot queries (`docs/evidence/plan-benchmark-2026-11-22.md`, targets set from observed numbers)
+- [ ] Fare ranking (needs fare evidence — plan item 11)
+- [ ] Curated routing regression suite extended to the full enumerated case list (bus-rail, rail-bus, ambiguous-stop cases — blocked on verified rail data and place resolution)
 - [ ] Owner field walks (Phase 3 gate) — connector candidates feed the planner only as `unverified_transfer` until verified
 
 **Phase 5 — Instructions and itinerary experience:**
@@ -415,9 +431,9 @@ npm start           # dev server; 'a'/'i' launches on a simulator (owner tooling
 - Every imported fact carries `verification_status = 'unverified'`. No timetable, live-availability, fare, or accessibility claims exist or may be made.
 - Coverage figures (**432 stops / 38 routes / 45 patterns**) describe **imported data within the bbox**, not service reality; OSM does not guarantee operational status or complete sequences.
 - Phase 3 additions (all `unverified`): **41 route shapes** from OSM member ways (4 patterns lack geometry — truncated island-wide relations; one shape spans 112 km for that reason and must not be trusted as a service path until checked), **432 default stop access points** located at the mapped stop nodes (the real roadside position is unknown), and **19 candidate transfer connectors** with routed walking paths (never straight-line estimates; never auto-verified).
-- Phase 4 planner honesty: journeys are **network-feasible, not live-confirmed** (`availability_scope` says so); in-vehicle times are a labelled conservative band (12–18 km/h over a 1.4× detour-allowed network distance), **not timetable data**; every option carries the pattern's/connector's verification state (`unverified_pattern` / `unverified_transfer`) and the static-service caveat; planner rides only in the captured direction of each pattern (a one-directional OSM relation cannot serve the reverse journey — it returns an explained `no_route`, not a fabricated reverse ride); walking legs are never estimated from straight-line distance.
+- Phase 4 planner honesty: journeys are **network-feasible, not live-confirmed** (`availability_scope` says so); in-vehicle times are a labelled conservative band (12–18 km/h over a 1.4× detour-allowed network distance), **not timetable data**; every option carries the pattern's/connector's verification state (`unverified_pattern` / `unverified_transfer`) and the static-service caveat; planner rides only in the captured direction of each pattern (a one-directional OSM relation cannot serve the reverse journey — it returns an explained `no_route`, not a fabricated reverse ride); walking legs are never estimated from straight-line distance. Plan caching (ADR-0003) never changes a result: keys embed the dataset version, Redis loss degrades to recompute, and saved journeys are retrieval-only snapshots with explicit re-plan via `/refresh`.
 - Known data gaps (recorded in the committed QA report `backend/data/validation_reports/osm-overpass-1679d061.md`): patterns with unresolvable stop calls, no agency attributions, no shapes, no transfer connectors, no verified anything — all awaiting field verification (D-3) and/or additional sources. 37 unresolved records include WP-edge members and long-distance relations whose member geometry extends island-wide.
 
 ---
 
-*End of report. Next update: Phase 4 completion (plan cache, saved journeys, regression-suite extension), or after the owner field walks.*
+*End of report. Next update: Phase 5 (instructions + itinerary experience) start, or after the owner field walks.*

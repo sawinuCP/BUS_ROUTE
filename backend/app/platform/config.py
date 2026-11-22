@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     valhalla_base_url: str = "http://localhost:8002"
     valhalla_timeout_seconds: float = 10.0
 
+    # Plan cache (Phase 4 item 13, ADR-0003): version-keyed plan payloads age
+    # out after this TTL; a network-version change invalidates immediately.
+    plan_cache_ttl_seconds: int = 3600
+
     @property
     def is_local(self) -> bool:
         return self.app_env == "local"
