@@ -17,6 +17,7 @@ import {
 } from '@/lib/api';
 import { setPlan } from '@/lib/planStore';
 import { saveCachedPlan, setCachedPlanOption } from '@/lib/planDb';
+import { readPreferences } from '@/lib/preferencesDb';
 
 /**
  * Journey planning + results comparison (Phase 5, plan items 9–10).
@@ -143,20 +144,38 @@ export default function JourneyScreen() {
     );
   }
 
+  /** Local-first preferences (Phase 7 item 9), read fresh for every plan. */
+  function planningPreferences(extra?: PlanPreferences): PlanPreferences {
+    const prefs = readPreferences();
+    return {
+      priority: extra?.priority ?? prefs.priority,
+      max_walking_m: extra?.max_walking_m ?? prefs.max_walking_m,
+      max_transfers: extra?.max_transfers ?? prefs.max_transfers,
+      allowed_modes: extra?.allowed_modes ?? prefs.allowed_modes,
+    };
+  }
+
   /**
    * One planning path for the initial search and for adjustment suggestions
    * (Phase 7 item 6): a suggestion re-plans through the same honest planner —
-   * it never fabricates an option itself.
+   * it never fabricates an option itself. Language and constraints come from
+   * the local-first preferences (Phase 7 item 9).
    */
   async function planBetween(
     originEndpoint: PlanEndpoint,
     destinationEndpoint: PlanEndpoint,
-    preferences: PlanPreferences = { priority: 'fastest', max_walking_m: 1500, max_transfers: 1 },
+    preferences?: PlanPreferences,
   ) {
+    const prefs = readPreferences();
     setLoading(true);
     setError(null);
     try {
-      const response = await planJourney(originEndpoint, destinationEndpoint, preferences, 'en');
+      const response = await planJourney(
+        originEndpoint,
+        destinationEndpoint,
+        planningPreferences(preferences),
+        prefs.language,
+      );
       setPlanState(response);
       setPlan(response); // hand-off for the steps screen
       saveCachedPlan(response); // offline cache (Phase 7 item 1)
@@ -183,13 +202,19 @@ export default function JourneyScreen() {
     }
     if (suggestion.kind === 'larger_walk_cap' && suggestion.suggested_max_walking_m) {
       void planBetween(originStop, destinationStop, {
-        priority: 'fastest',
         max_walking_m: suggestion.suggested_max_walking_m,
-        max_transfers: 1,
       });
+      return;
     }
-    // 'allow_mode' stays text-only on mobile until preferences plumbing
-    // exists (plan item 9); the backend text is shown as-is.
+    if (suggestion.kind === 'allow_mode' && suggestion.suggested_mode) {
+      // Phase 7 item 9: the mode preference is user-controlled; rail rides
+      // still require a verified station order (backend-enforced).
+      const current = readPreferences().allowed_modes;
+      const allowed = current.includes(suggestion.suggested_mode as 'rail')
+        ? current
+        : [...current, suggestion.suggested_mode as 'rail'];
+      void planBetween(originStop, destinationStop, { allowed_modes: allowed });
+    }
   }
 
   function openOption(option: PlanOption) {
@@ -266,6 +291,17 @@ export default function JourneyScreen() {
                     >
                       <ThemedText type="smallBold">
                         Try walking cap {suggestion.suggested_max_walking_m} m
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  {suggestion.kind === 'allow_mode' && suggestion.suggested_mode ? (
+                    <Pressable
+                      style={styles.button}
+                      testID={`suggestion-action-${index}`}
+                      onPress={() => applySuggestion(suggestion)}
+                    >
+                      <ThemedText type="smallBold">
+                        Include {suggestion.suggested_mode} and re-plan
                       </ThemedText>
                     </Pressable>
                   ) : null}

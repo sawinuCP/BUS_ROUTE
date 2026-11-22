@@ -2,31 +2,46 @@ import { render, screen as rtlScreen, userEvent } from '@testing-library/react-n
 
 import JourneyScreen from '@/app/journey';
 import { clearPlan, getPlan } from '@/lib/planStore';
+import { clearPreferencesForTests, savePreferences } from '@/lib/preferencesDb';
 
 // The offline plan cache (Phase 7) is backed by expo-sqlite — mocked here so
 // the cache write on a successful plan is testable without the native module.
+// Routes by SQL so the plan cache and the preference store share one fake DB.
 jest.mock('expo-sqlite', () => {
-  const rows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
-  const db = {
-    execSync: jest.fn(),
-    runSync: (sql: string, params?: unknown[]) => {
-      if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
-        rows.length = 0;
-        rows.push({ plan_json: params[0] as string, option_id: null, saved_at: params[1] as string });
+  const planRows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
+  const prefRows: { prefs_json: string; saved_at: string }[] = [];
+  const runSync = (sql: string, params?: unknown[]) => {
+    if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
+      planRows.length = 0;
+      planRows.push({ plan_json: params[0] as string, option_id: null, saved_at: params[1] as string });
+    }
+    if (sql.startsWith('UPDATE cached_plan') && params) {
+      if (planRows[0]) {
+        planRows[0].option_id = params[0] as string;
       }
-      if (sql.startsWith('UPDATE cached_plan') && params) {
-        if (rows[0]) {
-          rows[0].option_id = params[0] as string;
-        }
-      }
-      if (sql.startsWith('DELETE FROM cached_plan')) {
-        rows.length = 0;
-      }
-    },
-    getAllSync: () => rows.map((row) => ({ ...row })),
-    __rows: rows,
+    }
+    if (sql.startsWith('INSERT OR REPLACE INTO user_preferences') && params) {
+      prefRows.length = 0;
+      prefRows.push({ prefs_json: params[0] as string, saved_at: params[1] as string });
+    }
+    if (sql.startsWith('DELETE FROM cached_plan')) {
+      planRows.length = 0;
+    }
+    if (sql.startsWith('DELETE FROM user_preferences')) {
+      prefRows.length = 0;
+    }
   };
-  return { openDatabaseSync: () => db, __rows: rows };
+  const getAllSync = (sql: string) => {
+    if (sql.includes('FROM cached_plan')) {
+      return planRows.map((row) => ({ ...row }));
+    }
+    if (sql.includes('FROM user_preferences')) {
+      return prefRows.map((row) => ({ ...row }));
+    }
+    return [];
+  };
+  const db = { execSync: jest.fn(), runSync, getAllSync };
+  return { openDatabaseSync: () => db, __rows: planRows };
 });
 
 // userEvent is required: search and planning update state asynchronously
@@ -139,6 +154,7 @@ async function pickStopsAndPlan(screen: Awaited<ReturnType<typeof render>>, fetc
 describe('JourneyScreen results (Phase 5 items 9–10)', () => {
   beforeEach(() => {
     clearPlan();
+    clearPreferencesForTests();
     (jest.requireMock('expo-sqlite').__rows as unknown[]).length = 0;
   });
   afterEach(() => {
@@ -205,8 +221,109 @@ describe('JourneyScreen results (Phase 5 items 9–10)', () => {
     expect(await screen.findByText(/Planning failed/)).toBeTruthy();
   });
 
-  it('offers grounded no-route suggestions and re-plans through them (Phase 7 item 6)', async () => {
-    // First plan answers no_route with a suggestion; the re-planned request
+  it('plans with the saved local-first preferences (Phase 7 item 9)', async () => {
+    savePreferences({
+      language: 'si',
+      priority: 'least_walking',
+      max_walking_m: 2000,
+      max_transfers: 2,
+      allowed_modes: ['bus', 'rail'],
+    });
+    const planBodies: string[] = [];
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/journeys/plan')) {
+        planBodies.push(String(init?.body));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => planResponse,
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () =>
+          searchResponse([searchHit('s1', 'Kollupitiya Junction halt'), searchHit('s2', 'Colombo Fort')]),
+      } as unknown as Response);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyScreen />);
+    await pickStopsAndPlan(screen, fetchMock);
+
+    expect(await screen.findByText('12.5–18.7 min (network estimate)')).toBeTruthy();
+    expect(planBodies).toHaveLength(1);
+    const body = JSON.parse(planBodies[0]) as {
+      language: string;
+      preferences: {
+        priority: string;
+        max_walking_m: number;
+        max_transfers: number;
+        allowed_modes: string[];
+      };
+    };
+    // Language and constraints come from the local-first preference store.
+    expect(body.language).toBe('si');
+    expect(body.preferences).toEqual({
+      priority: 'least_walking',
+      max_walking_m: 2000,
+      max_transfers: 2,
+      allowed_modes: ['bus', 'rail'],
+    });
+  });
+
+  it('acts on an allow_mode suggestion by re-planning with rail included', async () => {
+    savePreferences({ allowed_modes: ['bus'] });
+    const noRouteWithModeSuggestion = {
+      ...noRouteResponse,
+      suggestions: [
+        {
+          kind: 'allow_mode',
+          role: 'request',
+          text:
+            '2 rail pattern(s) exist in this dataset but rail is excluded by the current mode'
+            + ' preference; rail rides additionally require a verified station order.',
+          suggested_mode: 'rail',
+        },
+      ],
+    };
+    let planCalls = 0;
+    const planBodies: string[] = [];
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/journeys/plan')) {
+        planCalls += 1;
+        planBodies.push(String(init?.body));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => (planCalls === 1 ? noRouteWithModeSuggestion : planResponse),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () =>
+          searchResponse([searchHit('s1', 'Kollupitiya Junction halt'), searchHit('s2', 'Colombo Fort')]),
+      } as unknown as Response);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyScreen />);
+    await pickStopsAndPlan(screen, fetchMock);
+
+    expect(await screen.findByTestId('suggestions')).toBeTruthy();
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('suggestion-action-0'));
+
+    expect(await screen.findByText('12.5–18.7 min (network estimate)')).toBeTruthy();
+    expect(planBodies).toHaveLength(2);
+    const second = JSON.parse(planBodies[1]) as { preferences: { allowed_modes: string[] } };
+    // The mode preference is user-controlled; the backend still enforces the
+    // verified-station-order rule for actual rail rides.
+    expect(second.preferences.allowed_modes).toEqual(['bus', 'rail']);
+  });
+
+  it('offers grounded no-route suggestions and re-plans through them (Phase 7 item 6)', async () => {    // First plan answers no_route with a suggestion; the re-planned request
     // (through the same honest planner) then succeeds.
     let planCalls = 0;
     const planBodies: string[] = [];

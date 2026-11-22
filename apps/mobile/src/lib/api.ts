@@ -124,6 +124,8 @@ export interface PlanPreferences {
   priority?: 'fastest' | 'least_walking' | 'fewest_transfers' | 'simplest';
   max_walking_m?: number;
   max_transfers?: number;
+  /** Modes the traveller allows (walk is always implied by the backend). */
+  allowed_modes?: ('bus' | 'rail')[];
 }
 
 export interface PlanStep {

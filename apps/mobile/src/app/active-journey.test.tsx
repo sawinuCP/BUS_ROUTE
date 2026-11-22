@@ -113,6 +113,9 @@ jest.mock('expo-location', () => {
     __gpsState: state,
     Accuracy: { Balanced: 3 },
     requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+    getCurrentPositionAsync: jest.fn(async () => ({
+      coords: { latitude: 6.9107, longitude: 79.8483 },
+    })),
     watchPositionAsync: jest.fn(
       async (_options: unknown, callback: (position: unknown) => void) => {
         state.callbacks.push(callback);
@@ -535,6 +538,71 @@ describe('ActiveJourneyScreen (Phase 6 items 2–6)', () => {
     await user.press(rtlScreen.getByTestId('recovery-cancel'));
     expect(screen.queryByTestId('recovery-panel')).toBeNull();
     expect(await screen.findByTestId('confirm-button')).toBeTruthy();
+  });
+
+  it('can list nearby mapped stops to assist confirmation (assistive, never stored)', async () => {
+    const replannedState = {
+      ...sessionState,
+      replanned: true,
+      previous_dataset_version: 'osm-overpass-1679d061',
+    };
+    const replanBodies: string[] = [];
+    const fetchMock = urlFetch((url, init) => {
+      if (url.endsWith('/replan')) {
+        replanBodies.push(String(init?.body));
+        return { ok: true, status: 200, json: async () => replannedState };
+      }
+      if (url.includes('/stops?bbox=')) {
+        // bbox around (6.9107, 79.8483), ±0.02° — comes from the one-shot fix.
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            bbox: '6.89070,79.82830,6.93070,79.86830',
+            count: 1,
+            stops: [
+              {
+                entity_type: 'stop',
+                entity_id: 'stop-near',
+                name: 'Nearby Junction halt',
+                coordinates: { lon: 79.8483, lat: 6.9107 },
+                stop_type: 'bus_stop',
+                mode: 'bus',
+                verification_status: 'unverified',
+              },
+            ],
+          }),
+        };
+      }
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+    await screen.findByTestId('do-this-now');
+
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('replan-button'));
+    expect(await screen.findByTestId('recovery-panel')).toBeTruthy();
+
+    // Assistive only: the traveller taps to search, the fix is never stored,
+    // and the stop must still be confirmed by tapping it.
+    await user.press(rtlScreen.getByTestId('recovery-nearby'));
+    expect(screen.getByText(/it is never stored/)).toBeTruthy();
+    await user.press(await screen.findByTestId('recovery-stop-stop-near'));
+
+    expect(replanBodies).toHaveLength(1);
+    expect(JSON.parse(replanBodies[0])).toEqual({
+      origin: { type: 'stop', stop_id: 'stop-near' },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/stops?bbox='),
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(await screen.findByText(/Step 1 of 2/)).toBeTruthy();
   });
 });
 

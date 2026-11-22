@@ -177,9 +177,14 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <Link href="/journey">
-        <ThemedText type="linkPrimary">Plan a journey</ThemedText>
-      </Link>
+      <View style={styles.linksRow}>
+        <Link href="/journey">
+          <ThemedText type="linkPrimary">Plan a journey</ThemedText>
+        </Link>
+        <Link href="/settings" testID="settings-link">
+          <ThemedText type="linkPrimary">Settings</ThemedText>
+        </Link>
+      </View>
     </ThemedView>
   );
 }
@@ -227,5 +232,9 @@ const styles = StyleSheet.create({
   },
   manualInput: {
     flex: 1,
+  },
+  linksRow: {
+    flexDirection: 'row',
+    gap: Spacing.four,
   },
 });

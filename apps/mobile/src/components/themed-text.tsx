@@ -1,7 +1,9 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { useSyncExternalStore } from 'react';
+import { Platform, StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 
 import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { getTextScale, subscribeTextScale } from '@/lib/textScale';
 
 export type ThemedTextProps = TextProps & {
   type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
@@ -10,8 +12,20 @@ export type ThemedTextProps = TextProps & {
 
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+  // Text-size preference (Phase 7 item 9): every text re-renders when the
+  // traveller changes the setting on the settings screen.
+  const scale = useSyncExternalStore(subscribeTextScale, getTextScale, getTextScale);
+  const base = styles[type] as TextStyle;
+  const sized: TextStyle =
+    scale === 1
+      ? base
+      : {
+          ...base,
+          fontSize: (base.fontSize ?? 16) * scale,
+          lineHeight: (base.lineHeight ?? (base.fontSize ?? 16) * 1.4) * scale,
+        };
 
-  return <Text style={[{ color: theme[themeColor ?? 'text'] }, styles[type], style]} {...rest} />;
+  return <Text style={[{ color: theme[themeColor ?? 'text'] }, sized, style]} {...rest} />;
 }
 
 const styles = StyleSheet.create({

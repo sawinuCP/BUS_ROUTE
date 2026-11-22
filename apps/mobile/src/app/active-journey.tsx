@@ -9,6 +9,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import {
   ApiStatusError,
+  fetchStopsInBbox,
   getJourneySession,
   postSessionEvent,
   replanJourneySession,
@@ -18,7 +19,12 @@ import {
   type SessionEventType,
   type SessionStep,
 } from '@/lib/api';
-import { evaluateProximity, type LocationSample, type SuggestionResult } from '@/lib/geoSuggestions';
+import {
+  distanceMeters,
+  evaluateProximity,
+  type LocationSample,
+  type SuggestionResult,
+} from '@/lib/geoSuggestions';
 import { readCachedPlan, readCachedOptionSteps } from '@/lib/planDb';
 import {
   enqueueProgressEvent,
@@ -401,6 +407,42 @@ export default function ActiveJourneyScreen() {
     setError(null);
   }
 
+  /**
+   * Assistive stop finder for recovery (Phase 7 item 5): the traveller taps
+   * explicitly, one GPS fix is taken for a single bbox search, and the
+   * position is **never stored** — the traveller still confirms the stop by
+   * tapping it. This only narrows the list; it never confirms anything.
+   */
+  async function findNearbyStops() {
+    setBusy(true);
+    try {
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = position.coords;
+      const delta = 0.02; // ≈ 2.2 km box around the position
+      const response = await fetchStopsInBbox(
+        `${(latitude - delta).toFixed(5)},${(longitude - delta).toFixed(5)},`
+          + `${(latitude + delta).toFixed(5)},${(longitude + delta).toFixed(5)}`,
+      );
+      const nearest = response.stops
+        .map((stop) => ({
+          stop,
+          distance: distanceMeters(latitude, longitude, stop.coordinates.lat, stop.coordinates.lon),
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 5)
+        .map(({ stop }) => ({ ...stop }) as unknown as SearchHit);
+      setRecoveryResults(nearest);
+      setRecoverySearched(true);
+      setError(null);
+    } catch {
+      setError('Could not get your location — search for the stop by name instead.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function searchRecoveryStops() {
     const trimmed = recoveryQuery.trim();
     if (!trimmed) {
@@ -642,6 +684,18 @@ export default function ActiveJourneyScreen() {
             >
               <ThemedText type="smallBold">Search stops</ThemedText>
             </Pressable>
+            <Pressable
+              style={styles.button}
+              onPress={() => void findNearbyStops()}
+              disabled={busy}
+              testID="recovery-nearby"
+            >
+              <ThemedText type="smallBold">Find stops near me (uses location once)</ThemedText>
+            </Pressable>
+            <ThemedText type="small" themeColor="textSecondary" testID="recovery-nearby-note">
+              &quot;Find stops near me&quot; takes one location fix for this search only — it is
+              never stored, and you still confirm the stop by tapping it.
+            </ThemedText>
             {recoverySearched && recoveryResults.length === 0 ? (
               <ThemedText type="small">No stop matches — try another name.</ThemedText>
             ) : null}
