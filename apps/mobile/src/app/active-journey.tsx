@@ -2,7 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -12,7 +12,9 @@ import {
   getJourneySession,
   postSessionEvent,
   replanJourneySession,
+  searchPlaces,
   type JourneySessionState,
+  type SearchHit,
   type SessionEventType,
   type SessionStep,
 } from '@/lib/api';
@@ -61,6 +63,13 @@ export default function ActiveJourneyScreen() {
   const [pendingSync, setPendingSync] = useState(0);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [staleVersion, setStaleVersion] = useState<string | null>(null);
+  // Recovery flow (Phase 7 item 5): missed-stop / wrong-route / missed-transfer
+  // recovery from a **confirmed** stop — the traveller searches and confirms
+  // where they actually are; nothing is detected automatically.
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryQuery, setRecoveryQuery] = useState('');
+  const [recoveryResults, setRecoveryResults] = useState<SearchHit[]>([]);
+  const [recoverySearched, setRecoverySearched] = useState(false);
   const samplesRef = useRef<LocationSample[]>([]);
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
   const aliveRef = useRef(true);
@@ -383,7 +392,75 @@ export default function ActiveJourneyScreen() {
     }
   }
 
-  async function replan() {
+  /** Opens the recovery panel (the traveller then confirms a stop). */
+  function openRecovery() {
+    setRecovering(true);
+    setRecoveryQuery('');
+    setRecoveryResults([]);
+    setRecoverySearched(false);
+    setError(null);
+  }
+
+  async function searchRecoveryStops() {
+    const trimmed = recoveryQuery.trim();
+    if (!trimmed) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await searchPlaces(trimmed);
+      setRecoveryResults(response.results.filter((hit) => hit.entity_type === 'stop').slice(0, 5));
+      setRecoverySearched(true);
+      setError(null);
+    } catch {
+      setError('Search needs a connection — try again when back online.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Recovery from a confirmed location (Phase 7 item 5): re-plans the session
+   * from the stop the traveller explicitly confirmed. The backend keeps its
+   * honest no-replacement behaviour — nothing is fabricated.
+   */
+  async function recoverFromStop(hit: SearchHit) {
+    if (!state) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const next = await replanJourneySession(state.session_id, {
+        type: 'stop',
+        stop_id: hit.entity_id,
+      });
+      if (next.replanned) {
+        applyState(next);
+        setRecovering(false);
+        setError(null);
+      } else {
+        // Honest no-replacement: keep following the current plan.
+        setError(
+          `No replacement journey found from ${hit.name} — continuing with the current plan`
+          + ` (${(next.notes ?? []).join(' ')}).`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiStatusError && err.status === 409) {
+        setError(`The backend refused that — ${err.message}`);
+      } else {
+        setError(
+          'Re-planning needs a connection — try again when back online.'
+          + ' Your progress stays saved on this device.',
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Same-origin/destination re-plan (unchanged start), from the panel. */
+  async function replanUnchanged() {
     if (!state) {
       return;
     }
@@ -392,8 +469,9 @@ export default function ActiveJourneyScreen() {
       const next = await replanJourneySession(state.session_id);
       if (next.replanned) {
         applyState(next);
+        setRecovering(false);
+        setError(null);
       } else {
-        // Honest no-replacement: keep following the current plan.
         setError(
           `No replacement journey found — continuing with the current plan (${(next.notes ?? []).join(' ')}).`,
         );
@@ -524,7 +602,7 @@ export default function ActiveJourneyScreen() {
             )}
             <Pressable
               style={styles.button}
-              onPress={() => void replan()}
+              onPress={openRecovery}
               disabled={busy}
               testID="replan-button"
             >
@@ -540,6 +618,61 @@ export default function ActiveJourneyScreen() {
             </Pressable>
           </View>
         )}
+        {recovering && !isTerminal ? (
+          <View style={styles.recoveryPanel} testID="recovery-panel">
+            <ThemedText type="smallBold">Where are you now?</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Missed a bus, took the wrong one, or missed a transfer? Confirm the stop you are
+              actually at (or can still reach) and the journey re-plans from there. Nothing is
+              detected automatically — you confirm the stop.
+            </ThemedText>
+            <TextInput
+              style={styles.recoveryInput}
+              placeholder="Search stops…"
+              placeholderTextColor="#888"
+              value={recoveryQuery}
+              onChangeText={setRecoveryQuery}
+              testID="recovery-input"
+            />
+            <Pressable
+              style={styles.button}
+              onPress={() => void searchRecoveryStops()}
+              disabled={busy}
+              testID="recovery-search"
+            >
+              <ThemedText type="smallBold">Search stops</ThemedText>
+            </Pressable>
+            {recoverySearched && recoveryResults.length === 0 ? (
+              <ThemedText type="small">No stop matches — try another name.</ThemedText>
+            ) : null}
+            {recoveryResults.map((hit) => (
+              <Pressable
+                key={hit.entity_id}
+                style={styles.button}
+                onPress={() => void recoverFromStop(hit)}
+                disabled={busy}
+                testID={`recovery-stop-${hit.entity_id}`}
+              >
+                <ThemedText type="smallBold">{hit.name}</ThemedText>
+              </Pressable>
+            ))}
+            <Pressable
+              style={styles.button}
+              onPress={() => void replanUnchanged()}
+              disabled={busy}
+              testID="recovery-replan-unchanged"
+            >
+              <ThemedText type="smallBold">Re-plan without changing the start</ThemedText>
+            </Pressable>
+            <Pressable
+              style={styles.button}
+              onPress={() => setRecovering(false)}
+              testID="recovery-cancel"
+            >
+              <ThemedText type="smallBold">Back to my journey</ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.toggleRow} testID="gps-row">
           <ThemedText type="small">GPS arrival hints (optional, suggestions only)</ThemedText>
@@ -614,6 +747,20 @@ const styles = StyleSheet.create({
     padding: Spacing.two,
     gap: Spacing.one,
     backgroundColor: 'rgba(128,128,128,0.12)',
+  },
+  recoveryPanel: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    padding: Spacing.two,
+    gap: Spacing.one,
+  },
+  recoveryInput: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
 });
 

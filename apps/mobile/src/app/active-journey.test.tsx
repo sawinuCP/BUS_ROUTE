@@ -207,6 +207,27 @@ const offlinePlanFixture = {
   language: 'en',
 };
 
+/** Search fixture for the recovery flow (one confirmed stop). */
+const recoverySearchResponse = {
+  query: 'new',
+  count: 1,
+  results: [
+    {
+      entity_type: 'stop',
+      entity_id: 'stop-x',
+      name: 'New Junction halt',
+      matched_text: 'New Junction halt',
+      matched_language: 'canonical',
+      score: 0.9,
+      coordinates: { lon: 79.85, lat: 6.91 },
+      verification_status: 'unverified',
+      locality: null,
+      mode: 'bus',
+    },
+  ],
+  note: '',
+};
+
 function urlFetch(handler: (url: string, init?: RequestInit) => unknown) {
   return jest.fn((url: string, init?: RequestInit) =>
     Promise.resolve(handler(url, init) as unknown as Response),
@@ -419,6 +440,101 @@ describe('ActiveJourneyScreen (Phase 6 items 2–6)', () => {
       expect.stringContaining('/events'),
       expect.objectContaining({ body: expect.stringContaining('"event_type":"step_advanced"') }),
     );
+  });
+
+  it('recovers from a confirmed stop after a missed stop / wrong route (Phase 7 item 5)', async () => {
+    const replannedState = {
+      ...sessionState,
+      replanned: true,
+      previous_dataset_version: 'osm-overpass-1679d061',
+    };
+    const replanBodies: string[] = [];
+    const fetchMock = urlFetch((url, init) => {
+      if (url.endsWith('/replan')) {
+        replanBodies.push(String(init?.body));
+        return { ok: true, status: 200, json: async () => replannedState };
+      }
+      if (url.includes('/places/search')) {
+        return { ok: true, status: 200, json: async () => recoverySearchResponse };
+      }
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+    await screen.findByTestId('do-this-now');
+
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('replan-button'));
+
+    // The recovery panel explains the mechanism: confirm, never auto-detect.
+    expect(await screen.findByTestId('recovery-panel')).toBeTruthy();
+    expect(screen.getByText(/Nothing is detected automatically/)).toBeTruthy();
+
+    await user.type(rtlScreen.getByTestId('recovery-input'), 'new junc');
+    await user.press(rtlScreen.getByTestId('recovery-search'));
+    await user.press(await screen.findByTestId('recovery-stop-stop-x'));
+
+    // The confirmed stop becomes the re-plan origin override.
+    expect(replanBodies).toHaveLength(1);
+    expect(JSON.parse(replanBodies[0])).toEqual({
+      origin: { type: 'stop', stop_id: 'stop-x' },
+    });
+    // Success: the panel closes and the re-planned state is adopted.
+    expect(await screen.findByText(/Step 1 of 2/)).toBeTruthy();
+    expect(screen.queryByTestId('recovery-panel')).toBeNull();
+  });
+
+  it('keeps the honest no-replacement answer when recovery finds nothing', async () => {
+    const fetchMock = urlFetch((url) => {
+      if (url.endsWith('/replan')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...sessionState,
+            replanned: false,
+            notes: ['No route connects from the confirmed stop.'],
+          }),
+        };
+      }
+      if (url.includes('/places/search')) {
+        return { ok: true, status: 200, json: async () => recoverySearchResponse };
+      }
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+    await screen.findByTestId('do-this-now');
+
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('replan-button'));
+    await user.type(rtlScreen.getByTestId('recovery-input'), 'new junc');
+    await user.press(rtlScreen.getByTestId('recovery-search'));
+    await user.press(await screen.findByTestId('recovery-stop-stop-x'));
+
+    // Honest no-replacement: the plan is kept and the reason is surfaced.
+    expect(
+      await screen.findByText(
+        /No replacement journey found from New Junction halt — continuing with the current plan/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/No route connects from the confirmed stop/)).toBeTruthy();
+    // The manual controls stay available and the panel remains open.
+    expect(screen.getByTestId('confirm-button')).toBeTruthy();
+    expect(screen.getByTestId('recovery-panel')).toBeTruthy();
+
+    // The traveller can back out to their journey unchanged.
+    await user.press(rtlScreen.getByTestId('recovery-cancel'));
+    expect(screen.queryByTestId('recovery-panel')).toBeNull();
+    expect(await screen.findByTestId('confirm-button')).toBeTruthy();
   });
 });
 

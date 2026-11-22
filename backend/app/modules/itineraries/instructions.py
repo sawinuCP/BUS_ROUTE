@@ -68,9 +68,7 @@ def _stop_name(network: TransitNetwork, ref: dict[str, Any]) -> str:
     return _NOT_CONFIRMED
 
 
-def _target_coords(
-    network: TransitNetwork, ref: dict[str, Any]
-) -> tuple[float, float] | None:
+def _target_coords(network: TransitNetwork, ref: dict[str, Any]) -> tuple[float, float] | None:
     """Target coordinates for a walk/board step, from canonical data only.
 
     Prefers the exact access point's mapped position; falls back to the
@@ -98,7 +96,6 @@ def _target_coords(
             if access_point.id == ap_id:
                 return access_point.lon, access_point.lat
     return stop.lon, stop.lat
-
 
 
 def _walk_step(network: TransitNetwork, leg: WalkLeg) -> InstructionStep:

@@ -497,3 +497,174 @@ async def test_plan_endpoint_contract(
         # event loop; dispose it so later per-test loops never find stale
         # pooled connections (I-13 pattern).
         await dispose_engine()
+
+
+# ---------------------------------------------------------------------
+# Phase 7 work item 6 — no-route adjustment suggestions (grounded only).
+# ---------------------------------------------------------------------
+
+
+async def test_no_route_suggests_nearby_mapped_stops(
+    db_conn: AsyncConnection, db_session: AsyncSession
+) -> None:
+    ids = await _seed_base(db_conn)
+    await _add_pattern(db_conn, ids, "138", [("A", 1), ("C", 2)])
+    network = await load_network(db_session)
+    planner = JourneyPlanner(network, FakeWalkingRouter())
+
+    result = await planner.plan(_stop("A", ids), _stop("D", ids), PlanningConstraints())
+
+    assert result.status == "no_route"
+    origin_nearby = [
+        s for s in result.suggestions if s.kind == "nearby_stop" and s.role == "origin"
+    ]
+    destination_nearby = [
+        s for s in result.suggestions if s.kind == "nearby_stop" and s.role == "destination"
+    ]
+    # A→B ≈ 220 m, D→C ≈ 220 m: both ends have a mapped alternative nearby.
+    assert origin_nearby and origin_nearby[0].stop_name == "Stop B"
+    assert origin_nearby[0].stop_id == str(ids["B"])
+    assert origin_nearby[0].distance_m is not None and origin_nearby[0].distance_m < 800
+    assert destination_nearby and destination_nearby[0].stop_name == "Stop C"
+    # Honest wording: straight-line "as mapped", walking distance not checked.
+    assert "as mapped" in origin_nearby[0].text
+    assert "walking distance not checked" in origin_nearby[0].text
+
+
+async def test_no_route_walk_cap_suggestion_uses_routed_distance(
+    db_conn: AsyncConnection, db_session: AsyncSession
+) -> None:
+    ids = await _seed_base(db_conn)
+    await _add_pattern(db_conn, ids, "138", [("A", 1), ("C", 2)])
+    network = await load_network(db_session)
+    planner = JourneyPlanner(network, FakeWalkingRouter())
+
+    tight = PlanningConstraints(max_walking_m=200.0)
+    result = await planner.plan(_stop("A", ids), _stop("D", ids), tight)
+
+    cap_suggestions = [
+        s for s in result.suggestions if s.kind == "larger_walk_cap" and s.role == "request"
+    ]
+    assert cap_suggestions, "the routed walk-only distance must ground a cap suggestion"
+    # The suggested cap is derived from a distance the walking engine routed
+    # (1.2× straight-line ≈ 19 km here), never from a straight-line guess.
+    assert cap_suggestions[0].suggested_max_walking_m > 10_000
+    assert "routed walking-only distance" in cap_suggestions[0].text
+
+
+async def test_coordinate_no_route_suggests_nearest_stop_beyond_cap(
+    db_conn: AsyncConnection, db_session: AsyncSession
+) -> None:
+    ids = await _seed_base(db_conn)
+    await _add_pattern(db_conn, ids, "138", [("A", 1), ("C", 2)])
+    network = await load_network(db_session)
+    planner = JourneyPlanner(network, FakeWalkingRouter())
+
+    # Origin ≈ 2 km from Stop F — nothing mapped within the default 1500 m cap.
+    result = await planner.plan(
+        _coords(80.1180, 6.6000), _coords(80.1000, 6.6000), PlanningConstraints()
+    )
+
+    assert result.status == "no_route"
+    origin_nearby = [
+        s for s in result.suggestions if s.kind == "nearby_stop" and s.role == "origin"
+    ]
+    assert origin_nearby and origin_nearby[0].stop_name == "Stop F"
+    assert "outside the 1500 m walking cap" in origin_nearby[0].text
+    origin_cap = [
+        s for s in result.suggestions if s.kind == "larger_walk_cap" and s.role == "origin"
+    ]
+    assert origin_cap and origin_cap[0].suggested_max_walking_m >= 2_000
+    # Honest framing: the straight-line distance is mapped, the walking
+    # distance is explicitly not checked until a re-plan routes it.
+    assert "may be longer" in origin_cap[0].text
+
+
+async def test_no_route_suggests_allow_mode_only_when_rail_data_exists(
+    db_conn: AsyncConnection, db_session: AsyncSession
+) -> None:
+    ids = await _seed_base(db_conn)
+    await _add_pattern(db_conn, ids, "138", [("A", 1), ("C", 2)])
+    await _add_pattern(db_conn, ids, "R1", [("C", 1), ("D", 2)], mode="rail")
+    network = await load_network(db_session)
+    planner = JourneyPlanner(network, FakeWalkingRouter())
+
+    result = await planner.plan(_stop("A", ids), _stop("D", ids), PlanningConstraints())
+    assert result.status == "no_route"  # rail ride refused: unverified station order
+    mode_suggestions = [s for s in result.suggestions if s.kind == "allow_mode"]
+    assert mode_suggestions and mode_suggestions[0].suggested_mode == "rail"
+    assert "verified station order" in mode_suggestions[0].text
+
+    # With rail allowed, the mode suggestion disappears (the refusal reason
+    # changes to the verification rule — never papered over).
+    result_with_rail = await planner.plan(
+        _stop("A", ids),
+        _stop("D", ids),
+        PlanningConstraints(allowed_modes=frozenset({"bus", "walk", "rail"})),
+    )
+    assert result_with_rail.status == "no_route"
+    assert not [s for s in result_with_rail.suggestions if s.kind == "allow_mode"]
+
+
+async def test_ok_results_carry_no_suggestions(
+    db_conn: AsyncConnection, db_session: AsyncSession
+) -> None:
+    ids = await _seed_base(db_conn)
+    await _add_pattern(db_conn, ids, "138", [("A", 1), ("C", 2)])
+    network = await load_network(db_session)
+    planner = JourneyPlanner(network, FakeWalkingRouter())
+
+    result = await planner.plan(_stop("A", ids), _stop("C", ids), PlanningConstraints())
+
+    assert result.status == "ok"
+    assert result.suggestions == ()
+
+
+async def test_no_route_suggestions_are_serialized_in_the_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API contract: a no_route response carries structured suggestions."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.main import app
+    from app.platform.config import get_settings
+    from app.platform.db import dispose_engine
+    from tests.integration.conftest import _CLEANUP_ORDER
+    from tests.integration.test_plan_cache_and_saved import FakeCacheStore
+
+    monkeypatch.setattr("app.api.routes.journeys._cache", lambda: FakeCacheStore())
+
+    engine = create_async_engine(get_settings().database_url)
+    try:
+        async with engine.begin() as conn:
+            ids = await _seed_base(conn)
+            await _add_pattern(conn, ids, "138", [("A", 1), ("C", 2)])
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/journeys/plan",
+                json={
+                    "origin": {"type": "stop", "stop_id": str(ids["A"])},
+                    "destination": {"type": "stop", "stop_id": str(ids["D"])},
+                },
+            )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "no_route"
+        suggestions = payload["suggestions"]
+        origin_nearby = [
+            s for s in suggestions if s["kind"] == "nearby_stop" and s["role"] == "origin"
+        ]
+        assert origin_nearby and origin_nearby[0]["stop_name"] == "Stop B"
+        assert origin_nearby[0]["stop_id"] == str(ids["B"])
+        assert "as mapped" in origin_nearby[0]["text"]
+        # Every suggestion carries an honest, non-empty explanation.
+        for suggestion in suggestions:
+            assert suggestion["text"].strip() != ""
+    finally:
+        async with engine.begin() as conn:
+            for statement in _CLEANUP_ORDER:
+                await conn.execute(text(statement))
+        await engine.dispose()
+        await dispose_engine()

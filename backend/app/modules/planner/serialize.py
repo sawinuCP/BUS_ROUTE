@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.modules.planner.itinerary import Itinerary, RideLeg, WalkLeg
-from app.modules.planner.service import PlanningResult
+from app.modules.planner.service import PlanningResult, Suggestion
 
 
 def serialize_leg(leg: RideLeg | WalkLeg) -> dict[str, Any]:
@@ -105,6 +105,35 @@ def serialize_result(
         "options": options,
         "labels": result.labels,
         "notes": list(result.notes),
+        "suggestions": [serialize_suggestion(suggestion) for suggestion in result.suggestions],
+    }
+
+
+def serialize_suggestion(suggestion: Suggestion) -> dict[str, Any]:
+    """One no-route adjustment suggestion (Phase 7 item 6; grounded facts only)."""
+    return {
+        "kind": suggestion.kind,
+        "role": suggestion.role,
+        "text": suggestion.text,
+        **(
+            {
+                "stop_id": suggestion.stop_id,
+                "stop_name": suggestion.stop_name,
+                "distance_m": suggestion.distance_m,
+            }
+            if suggestion.stop_id is not None
+            else {}
+        ),
+        **(
+            {"suggested_max_walking_m": suggestion.suggested_max_walking_m}
+            if suggestion.suggested_max_walking_m is not None
+            else {}
+        ),
+        **(
+            {"suggested_mode": suggestion.suggested_mode}
+            if suggestion.suggested_mode is not None
+            else {}
+        ),
     }
 
 

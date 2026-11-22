@@ -9,7 +9,10 @@ import {
   planJourney,
   searchPlaces,
   type JourneyPlanResponse,
+  type PlanEndpoint,
   type PlanOption,
+  type PlanPreferences,
+  type PlanSuggestion,
   type SearchHit,
 } from '@/lib/api';
 import { setPlan } from '@/lib/planStore';
@@ -134,15 +137,26 @@ export default function JourneyScreen() {
     if (!origin.selected || !destination.selected) {
       return;
     }
+    await planBetween(
+      { type: 'stop', stop_id: origin.selected.entity_id },
+      { type: 'stop', stop_id: destination.selected.entity_id },
+    );
+  }
+
+  /**
+   * One planning path for the initial search and for adjustment suggestions
+   * (Phase 7 item 6): a suggestion re-plans through the same honest planner —
+   * it never fabricates an option itself.
+   */
+  async function planBetween(
+    originEndpoint: PlanEndpoint,
+    destinationEndpoint: PlanEndpoint,
+    preferences: PlanPreferences = { priority: 'fastest', max_walking_m: 1500, max_transfers: 1 },
+  ) {
     setLoading(true);
     setError(null);
     try {
-      const response = await planJourney(
-        { type: 'stop', stop_id: origin.selected.entity_id },
-        { type: 'stop', stop_id: destination.selected.entity_id },
-        { priority: 'fastest', max_walking_m: 1500, max_transfers: 1 },
-        'en',
-      );
+      const response = await planJourney(originEndpoint, destinationEndpoint, preferences, 'en');
       setPlanState(response);
       setPlan(response); // hand-off for the steps screen
       saveCachedPlan(response); // offline cache (Phase 7 item 1)
@@ -151,6 +165,31 @@ export default function JourneyScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function applySuggestion(suggestion: PlanSuggestion) {
+    if (!origin.selected || !destination.selected) {
+      return;
+    }
+    const originStop = { type: 'stop' as const, stop_id: origin.selected.entity_id };
+    const destinationStop = { type: 'stop' as const, stop_id: destination.selected.entity_id };
+    if (suggestion.kind === 'nearby_stop' && suggestion.stop_id) {
+      const suggested = { type: 'stop' as const, stop_id: suggestion.stop_id };
+      void planBetween(
+        suggestion.role === 'origin' ? suggested : originStop,
+        suggestion.role === 'destination' ? suggested : destinationStop,
+      );
+      return;
+    }
+    if (suggestion.kind === 'larger_walk_cap' && suggestion.suggested_max_walking_m) {
+      void planBetween(originStop, destinationStop, {
+        priority: 'fastest',
+        max_walking_m: suggestion.suggested_max_walking_m,
+        max_transfers: 1,
+      });
+    }
+    // 'allow_mode' stays text-only on mobile until preferences plumbing
+    // exists (plan item 9); the backend text is shown as-is.
   }
 
   function openOption(option: PlanOption) {
@@ -195,6 +234,45 @@ export default function JourneyScreen() {
               • {note}
             </ThemedText>
           ))}
+          {plan.suggestions?.length ? (
+            <View style={styles.suggestions} testID="suggestions">
+              <ThemedText type="smallBold">
+                Try instead (from mapped data — nothing is promised to work)
+              </ThemedText>
+              {plan.suggestions.map((suggestion, index) => (
+                <View
+                  key={`${suggestion.kind}-${suggestion.role}-${index}`}
+                  style={styles.suggestionCard}
+                  testID={`suggestion-${index}`}
+                >
+                  <ThemedText type="small">{suggestion.text}</ThemedText>
+                  {suggestion.kind === 'nearby_stop' && suggestion.stop_id ? (
+                    <Pressable
+                      style={styles.button}
+                      testID={`suggestion-action-${index}`}
+                      onPress={() => applySuggestion(suggestion)}
+                    >
+                      <ThemedText type="smallBold">
+                        {suggestion.role === 'origin' ? 'Plan from ' : 'Plan to '}
+                        {suggestion.stop_name} instead
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  {suggestion.kind === 'larger_walk_cap' && suggestion.suggested_max_walking_m ? (
+                    <Pressable
+                      style={styles.button}
+                      testID={`suggestion-action-${index}`}
+                      onPress={() => applySuggestion(suggestion)}
+                    >
+                      <ThemedText type="smallBold">
+                        Try walking cap {suggestion.suggested_max_walking_m} m
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -301,6 +379,17 @@ const styles = StyleSheet.create({
     borderColor: '#999',
     padding: Spacing.two,
     gap: Spacing.one,
+  },
+  suggestions: {
+    gap: Spacing.one,
+  },
+  suggestionCard: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    padding: Spacing.two,
+    gap: Spacing.one,
+    backgroundColor: 'rgba(128,128,128,0.12)',
   },
 });
 

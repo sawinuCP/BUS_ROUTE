@@ -89,6 +89,20 @@ const noRouteResponse = {
   language: 'en',
 };
 
+const noRouteWithSuggestions = {
+  ...noRouteResponse,
+  suggestions: [
+    {
+      kind: 'nearby_stop',
+      role: 'origin',
+      text: 'Alternative mapped stop for the origin: Willium Junction halt — 220 m away (straight-line as mapped; walking distance not checked).',
+      stop_id: 's1b',
+      stop_name: 'Willium Junction halt',
+      distance_m: 220,
+    },
+  ],
+};
+
 /** Fetch double: URL decides between search and plan endpoints. */
 function mockFetch(planJson: unknown) {
   return jest.fn((url: string) => {
@@ -189,5 +203,51 @@ describe('JourneyScreen results (Phase 5 items 9–10)', () => {
     await pickStopsAndPlan(screen, fetchMock);
 
     expect(await screen.findByText(/Planning failed/)).toBeTruthy();
+  });
+
+  it('offers grounded no-route suggestions and re-plans through them (Phase 7 item 6)', async () => {
+    // First plan answers no_route with a suggestion; the re-planned request
+    // (through the same honest planner) then succeeds.
+    let planCalls = 0;
+    const planBodies: string[] = [];
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/journeys/plan')) {
+        planCalls += 1;
+        planBodies.push(String(init?.body));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => (planCalls === 1 ? noRouteWithSuggestions : planResponse),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () =>
+          searchResponse([searchHit('s1', 'Kollupitiya Junction halt'), searchHit('s2', 'Colombo Fort')]),
+      } as unknown as Response);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyScreen />);
+    await pickStopsAndPlan(screen, fetchMock);
+
+    // The suggestion card shows the backend's grounded text verbatim…
+    expect(await screen.findByTestId('suggestions')).toBeTruthy();
+    expect(screen.getByTestId('suggestion-0')).toBeTruthy();
+    expect(screen.getByText(/straight-line as mapped; walking distance not checked/)).toBeTruthy();
+    // …and acting on it re-plans through the planner with the suggested stop.
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('suggestion-action-0'));
+
+    expect(await screen.findByText('12.5–18.7 min (network estimate)')).toBeTruthy();
+    expect(planBodies).toHaveLength(2);
+    const secondPlan = JSON.parse(planBodies[1]) as {
+      origin: { type: string; stop_id: string };
+      destination: { type: string; stop_id: string };
+    };
+    // The suggested mapped stop becomes the origin; the destination is kept.
+    expect(secondPlan.origin).toEqual({ type: 'stop', stop_id: 's1b' });
+    expect(secondPlan.destination).toEqual({ type: 'stop', stop_id: 's2' });
   });
 });

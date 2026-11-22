@@ -83,9 +83,40 @@ All admin endpoints require strong authorisation and audit logging.
         }
       ]
     }
+  ],
+  "notes": ["No journey found within the given constraints."],
+  "suggestions": [
+    {
+      "kind": "nearby_stop",
+      "role": "origin",
+      "text": "Alternative mapped stop for the origin: X halt — 220 m away (straight-line as mapped; walking distance not checked).",
+      "stop_id": "stop-id",
+      "stop_name": "X halt",
+      "distance_m": 220
+    },
+    {
+      "kind": "larger_walk_cap",
+      "role": "request",
+      "text": "Re-plan with max_walking_m ≥ 4400 m — the routed walking-only distance is 4219 m.",
+      "suggested_max_walking_m": 4400
+    }
   ]
 }
 ```
+
+A `no_route` response may carry **adjustment suggestions** (Phase 7 item 6).
+Every suggestion is derived from canonical mapped data (mapped stops,
+straight-line distances always labelled "as mapped") or from a distance the
+walking engine actually routed; a suggestion never claims a service,
+timetable or fare and never asserts that the alternative works — the client
+re-plans through the same endpoint and the planner answers honestly again.
+An `ok` response carries no suggestions.
+
+Recovery flows (Phase 7 item 5) reuse the session endpoints: the traveller
+**confirms** the stop they are actually at (never auto-detected), and
+`POST /journey-sessions/{id}/replan` re-plans with an optional `origin`
+override; when nothing connects it answers `replanned: false` with reasons
+and leaves the session untouched.
 
 ## API design rules
 - Use stable internal IDs; expose source IDs only when appropriate.

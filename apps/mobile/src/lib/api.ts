@@ -200,6 +200,26 @@ export interface JourneyPlanResponse {
   cache?: 'hit' | 'miss';
   journey_id?: string;
   note?: string;
+  /** Grounded no-route adjustment suggestions (Phase 7 item 6). */
+  suggestions?: PlanSuggestion[];
+}
+
+/**
+ * One no-route adjustment suggestion from the backend. Everything in it is
+ * derived from canonical mapped data or from a distance the walking engine
+ * actually routed — the app never invents an alternative and never promises
+ * that a suggestion works (re-planning answers honestly again).
+ */
+export interface PlanSuggestion {
+  kind: 'nearby_stop' | 'larger_walk_cap' | 'allow_mode';
+  role: 'origin' | 'destination' | 'request';
+  text: string;
+  stop_id?: string;
+  stop_name?: string;
+  /** Straight-line "as mapped" distance for nearby_stop suggestions. */
+  distance_m?: number;
+  suggested_max_walking_m?: number;
+  suggested_mode?: string;
 }
 
 /** Plans a journey between two endpoints (stop IDs from search results). */

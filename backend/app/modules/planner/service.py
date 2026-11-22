@@ -53,6 +53,9 @@ PRIORITIES = ("fastest", "least_walking", "fewest_transfers", "simplest")
 
 _MAX_ACCESS_STOPS = 8  # nearest stops considered for coordinate endpoints
 _MAX_FRONTIER = 200  # deterministic cap on states expanded per depth
+NEARBY_BROWSE_M = 800.0  # mapped-stop browse radius for nearby_stop suggestions
+_MAX_NEARBY_STOPS = 2  # per endpoint, deterministic order
+_MAX_SUGGESTIONS = 6  # keep the no_route payload focused
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,27 @@ class _State:
 
 
 @dataclass(frozen=True)
+class Suggestion:
+    """A grounded no-route adjustment suggestion (Phase 7 work item 6).
+
+    Every field is derived from canonical mapped data or from a distance the
+    walking engine actually routed — a suggestion never claims a service,
+    timetable or fare, and it never asserts that the alternative *works*;
+    the traveller re-plans and the planner answers honestly again.
+    """
+
+    kind: str  # nearby_stop | larger_walk_cap | allow_mode
+    role: str  # origin | destination | request
+    text: str
+    stop_id: str | None = None
+    stop_name: str | None = None
+    """Straight-line "as mapped" distance for nearby_stop (labelled as such)."""
+    distance_m: float | None = None
+    suggested_max_walking_m: int | None = None
+    suggested_mode: str | None = None
+
+
+@dataclass(frozen=True)
 class PlanningResult:
     """What the planner returns (options already deduped and Pareto-filtered)."""
 
@@ -107,6 +131,7 @@ class PlanningResult:
     options: tuple[Itinerary, ...] = ()
     labels: dict[str, int | None] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    suggestions: tuple[Suggestion, ...] = ()
 
 
 class JourneyPlanner:
@@ -170,7 +195,9 @@ class JourneyPlanner:
                 notes=tuple(notes),
             )
 
-        walk_only = await self._walk_only_fallback(origin, destination, constraints, notes)
+        walk_only, walk_only_distance = await self._walk_only_fallback(
+            origin, destination, constraints, notes
+        )
         if walk_only is not None:
             options = (walk_only,)
             labels = rank_labels(list(options))
@@ -191,6 +218,9 @@ class JourneyPlanner:
             options=(),
             labels=rank_labels([]),
             notes=tuple(notes),
+            suggestions=self._no_route_suggestions(
+                origin, destination, constraints, walk_only_distance
+            ),
         )
 
     async def _resolve_end(
@@ -516,22 +546,27 @@ class JourneyPlanner:
         destination: Endpoint,
         constraints: PlanningConstraints,
         notes: list[str],
-    ) -> Itinerary | None:
-        """Walking-only journey when no transit option exists (honest fallback)."""
+    ) -> tuple[Itinerary | None, float | None]:
+        """Walking-only journey when no transit option exists (honest fallback).
+
+        Returns the itinerary (or None) plus the *routed* walking distance that
+        was attempted — `None` distance when no path exists — so no-route
+        suggestions can propose a grounded walking-cap adjustment.
+        """
         start = self._point_of(origin)
         end = self._point_of(destination)
         if start is None or end is None:
-            return None
+            return None, None
         plan = await self._walking_router.route_walk(start[0], start[1], end[0], end[1])
         if plan is None:
             notes.append("Walking-only fallback unavailable: the walking engine produced no path.")
-            return None
+            return None, None
         if plan.distance_m > constraints.max_walking_m:
             notes.append(
                 f"Walking-only distance ({plan.distance_m:.0f} m) exceeds the walking"
                 f" cap ({constraints.max_walking_m:.0f} m)."
             )
-            return None
+            return None, plan.distance_m
         walk_leg = WalkLeg(
             purpose="walk_only",
             distance_m=plan.distance_m,
@@ -552,7 +587,131 @@ class JourneyPlanner:
                 "No transit option within the constraints; walking-only journey returned.",
             ),
             confidence="verified",
-        )
+        ), plan.distance_m
+
+    # ------------------------------------------------------------------
+    # No-route adjustment suggestions (Phase 7 work item 6).
+    #
+    # Grounding rules: distances for mapped stops are straight-line and are
+    # always labelled "as mapped"; the walking-cap suggestion from the
+    # walk-only attempt uses a distance the walking engine actually routed;
+    # nothing claims a service, timetable or fare, and no suggestion asserts
+    # that the alternative works — the traveller re-plans and the planner
+    # answers honestly again.
+    # ------------------------------------------------------------------
+
+    def _no_route_suggestions(
+        self,
+        origin: Endpoint,
+        destination: Endpoint,
+        constraints: PlanningConstraints,
+        walk_only_distance: float | None,
+    ) -> tuple[Suggestion, ...]:
+        suggestions: list[Suggestion] = []
+
+        for role, endpoint in (("origin", origin), ("destination", destination)):
+            if endpoint.kind == "stop" and endpoint.stop_id is not None:
+                suggestions.extend(self._nearby_stop_suggestions(role, endpoint))
+            elif endpoint.kind == "coordinates" and endpoint.lon is not None:
+                suggestions.extend(self._beyond_cap_stop_suggestions(role, endpoint, constraints))
+
+        if walk_only_distance is not None and walk_only_distance > constraints.max_walking_m:
+            cap = int((walk_only_distance // 100 + 1) * 100 + 100)
+            suggestions.append(
+                Suggestion(
+                    kind="larger_walk_cap",
+                    role="request",
+                    text=(
+                        f"Re-plan with max_walking_m ≥ {cap} m — the routed walking-only"
+                        f" distance is {walk_only_distance:.0f} m."
+                    ),
+                    suggested_max_walking_m=cap,
+                )
+            )
+
+        rail_patterns = sum(1 for pattern in self._network.patterns if pattern.mode == "rail")
+        if rail_patterns and "rail" not in constraints.allowed_modes:
+            suggestions.append(
+                Suggestion(
+                    kind="allow_mode",
+                    role="request",
+                    text=(
+                        f"{rail_patterns} rail pattern(s) exist in this dataset but 'rail' is"
+                        " excluded by the current mode preference; rail rides additionally"
+                        " require a verified station order."
+                    ),
+                    suggested_mode="rail",
+                )
+            )
+
+        return tuple(suggestions[:_MAX_SUGGESTIONS])
+
+    def _nearby_stop_suggestions(self, role: str, endpoint: Endpoint) -> list[Suggestion]:
+        """Nearest other mapped stops around a stop-kind endpoint (≤ browse radius)."""
+        here = self._network.stops.get(endpoint.stop_id) if endpoint.stop_id else None
+        if here is None:
+            return []  # unknown stop: the notes already explain it
+        scored: list[tuple[float, StopSpec]] = []
+        for stop in self._network.stops.values():
+            if stop.id == here.id:
+                continue
+            distance = haversine_m(here.lon, here.lat, stop.lon, stop.lat)
+            if distance <= NEARBY_BROWSE_M:
+                scored.append((distance, stop))
+        scored.sort(key=lambda item: (item[0], str(item[1].id)))
+        return [
+            Suggestion(
+                kind="nearby_stop",
+                role=role,
+                text=(
+                    f"Alternative mapped stop for the {role}: {stop.name} —"
+                    f" {distance:.0f} m away (straight-line as mapped; walking"
+                    " distance not checked)."
+                ),
+                stop_id=str(stop.id),
+                stop_name=stop.name,
+                distance_m=round(distance, 1),
+            )
+            for distance, stop in scored[:_MAX_NEARBY_STOPS]
+        ]
+
+    def _beyond_cap_stop_suggestions(
+        self, role: str, endpoint: Endpoint, constraints: PlanningConstraints
+    ) -> list[Suggestion]:
+        """Coordinate endpoints whose nearest mapped stop lies outside the cap."""
+        assert endpoint.lon is not None and endpoint.lat is not None  # validated
+        nearest: tuple[float, StopSpec] | None = None
+        for stop in self._network.stops.values():
+            distance = haversine_m(endpoint.lon, endpoint.lat, stop.lon, stop.lat)
+            if nearest is None or (distance, str(stop.id)) < (nearest[0], str(nearest[1].id)):
+                nearest = (distance, stop)
+        if nearest is None or nearest[0] <= constraints.max_walking_m:
+            return []  # nothing mapped at all, or the cap already includes it
+        distance, stop = nearest
+        cap = int((distance // 100 + 1) * 100 + 100)
+        return [
+            Suggestion(
+                kind="nearby_stop",
+                role=role,
+                text=(
+                    f"The nearest mapped stop to the {role} is {stop.name} —"
+                    f" {distance:.0f} m straight-line as mapped, outside the"
+                    f" {constraints.max_walking_m:.0f} m walking cap."
+                ),
+                stop_id=str(stop.id),
+                stop_name=stop.name,
+                distance_m=round(distance, 1),
+            ),
+            Suggestion(
+                kind="larger_walk_cap",
+                role=role,
+                text=(
+                    f"A walking cap of at least {cap} m would include it — the actual"
+                    " walking distance may be longer (checked only when you re-plan)."
+                ),
+                suggested_max_walking_m=cap,
+            ),
+        ]
 
     def _point_of(self, endpoint: Endpoint) -> tuple[float, float] | None:
         if endpoint.kind == "stop" and endpoint.stop_id is not None:

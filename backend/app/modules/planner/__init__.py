@@ -33,6 +33,7 @@ from app.modules.planner.service import (
     JourneyPlanner,
     PlanningConstraints,
     PlanningResult,
+    Suggestion,
 )
 
 __all__ = [
@@ -46,6 +47,7 @@ __all__ = [
     "PlanningConstraints",
     "PlanningResult",
     "RideLeg",
+    "Suggestion",
     "TransitNetwork",
     "WalkLeg",
     "load_network",
