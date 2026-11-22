@@ -68,6 +68,39 @@ def _stop_name(network: TransitNetwork, ref: dict[str, Any]) -> str:
     return _NOT_CONFIRMED
 
 
+def _target_coords(
+    network: TransitNetwork, ref: dict[str, Any]
+) -> tuple[float, float] | None:
+    """Target coordinates for a walk/board step, from canonical data only.
+
+    Prefers the exact access point's mapped position; falls back to the
+    stop's mapped position. Returns None when neither is mapped — the GPS
+    assistant simply stays silent rather than guessing.
+    """
+    from uuid import UUID
+
+    access_point_id = ref.get("id") if ref.get("kind") == "stop_access_point" else None
+    stop_id_raw = ref.get("stop_id") or (ref.get("id") if ref.get("kind") == "stop" else None)
+    if stop_id_raw is None:
+        return None
+    try:
+        stop = network.stops.get(UUID(str(stop_id_raw)))
+    except ValueError:
+        return None
+    if stop is None:
+        return None
+    if access_point_id is not None:
+        try:
+            ap_id = UUID(str(access_point_id))
+        except ValueError:
+            ap_id = None
+        for access_point in stop.access_points:
+            if access_point.id == ap_id:
+                return access_point.lon, access_point.lat
+    return stop.lon, stop.lat
+
+
+
 def _walk_step(network: TransitNetwork, leg: WalkLeg) -> InstructionStep:
     metres = round(leg.distance_m)
     if leg.purpose == "access":
@@ -85,20 +118,29 @@ def _walk_step(network: TransitNetwork, leg: WalkLeg) -> InstructionStep:
             text = f"Walk {metres} m to the boarding point."
         else:
             text = f"Walk {metres} m to the bus stop."
+        coords = _target_coords(network, leg.to_ref)
+        if coords is not None:
+            facts["target_lat"] = coords[1]
+            facts["target_lon"] = coords[0]
         return InstructionStep(action=WALK_TO_STOP, text=text, facts=facts, confidence="unverified")
     if leg.purpose == "transfer":
         to_name = _stop_name(network, leg.to_ref)
+        facts_t: dict[str, Any] = {
+            "distance_m": metres,
+            "duration_s": round(leg.duration_s),
+            "to_stop_id": leg.to_ref.get("stop_id"),
+            "to_stop_name": to_name,
+            "next_boarding_point": to_name,
+            "walking_provider": leg.provider,
+        }
+        coords = _target_coords(network, leg.to_ref)
+        if coords is not None:
+            facts_t["target_lat"] = coords[1]
+            facts_t["target_lon"] = coords[0]
         return InstructionStep(
             action=WALK_TRANSFER,
             text=f"Walk {metres} m to {to_name} to change buses.",
-            facts={
-                "distance_m": metres,
-                "duration_s": round(leg.duration_s),
-                "to_stop_id": leg.to_ref.get("stop_id"),
-                "to_stop_name": to_name,
-                "next_boarding_point": to_name,
-                "walking_provider": leg.provider,
-            },
+            facts=facts_t,
             # The connector's own verification state is carried on the option;
             # the walk itself is an engine-routed path, not a verified fact.
             confidence="unverified",
@@ -106,6 +148,10 @@ def _walk_step(network: TransitNetwork, leg: WalkLeg) -> InstructionStep:
     facts = {"distance_m": metres, "duration_s": round(leg.duration_s)}
     if leg.to_ref.get("kind") == "stop":
         facts["to_stop_name"] = _stop_name(network, leg.to_ref)
+    coords = _target_coords(network, leg.to_ref)
+    if coords is not None:
+        facts["target_lat"] = coords[1]
+        facts["target_lon"] = coords[0]
     return InstructionStep(
         action=WALK_TO_DESTINATION,
         text=f"Walk {metres} m to your destination.",
@@ -126,6 +172,12 @@ def _board_step(network: TransitNetwork, leg: RideLeg) -> InstructionStep:
         "stop_id": leg.board_stop_id,
         "stop_name": leg.board_stop_name,
     }
+    coords = _target_coords(
+        network, {"kind": "stop", "id": leg.board_stop_id, "name": leg.board_stop_name}
+    )
+    if coords is not None:
+        facts["stop_lat"] = coords[1]
+        facts["stop_lon"] = coords[0]
     if headsign:
         text += f" heading towards {headsign}"
         facts["headsign"] = headsign

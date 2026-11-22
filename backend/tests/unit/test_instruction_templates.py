@@ -166,6 +166,45 @@ def test_walk_templates_by_purpose() -> None:
     assert egress_step.text == "Walk 310 m to your destination."
 
 
+def test_walk_facts_carry_target_coordinates_from_canonical_data() -> None:
+    """GPS assist facts come from the network only — never invented."""
+    transfer = WalkLeg(
+        purpose="transfer",
+        distance_m=142.4,
+        duration_s=100.0,
+        from_ref={"kind": "stop", "id": str(_STOP_A), "name": "Kollupitiya Junction halt"},
+        to_ref={"kind": "stop_access_point", "id": "ap-1", "stop_id": str(_STOP_B)},
+        provider="stored_connector",
+    )
+    access = WalkLeg(
+        purpose="access",
+        distance_m=240.0,
+        duration_s=180.0,
+        from_ref={"kind": "coordinates", "lon": 79.85, "lat": 6.91},
+        to_ref={"kind": "stop", "id": str(_STOP_A), "name": "Kollupitiya Junction halt"},
+    )
+    unmapped = WalkLeg(
+        purpose="egress",
+        distance_m=100.0,
+        duration_s=80.0,
+        from_ref={"kind": "stop", "id": str(_STOP_B), "name": "Colombo Fort"},
+        to_ref={"kind": "coordinates", "lon": 79.86, "lat": 6.93},
+    )
+
+    transfer_step = build_steps(_NETWORK, (transfer,))[0]
+    access_step = build_steps(_NETWORK, (access,))[0]
+    unmapped_step = build_steps(_NETWORK, (unmapped,))[0]
+
+    # Stop B's canonical mapped position (no access point with that id exists,
+    # so the stop's own position is the honest fallback).
+    assert transfer_step.facts["target_lat"] == _NETWORK.stops[_STOP_B].lat
+    assert transfer_step.facts["target_lon"] == _NETWORK.stops[_STOP_B].lon
+    assert access_step.facts["target_lat"] == _NETWORK.stops[_STOP_A].lat
+    # A pure coordinate reference has no stop to resolve → no invented target.
+    assert "target_lat" not in unmapped_step.facts
+    assert "target_lon" not in unmapped_step.facts
+
+
 def test_step_order_is_executable() -> None:
     access = WalkLeg(
         purpose="access",

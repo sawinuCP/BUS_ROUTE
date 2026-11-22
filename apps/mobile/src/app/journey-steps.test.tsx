@@ -1,4 +1,9 @@
-import { render, screen as rtlScreen } from '@testing-library/react-native';
+import {
+  render,
+  screen as rtlScreen,
+  userEvent,
+  waitFor,
+} from '@testing-library/react-native';
 
 import JourneyStepsScreen from '@/app/journey-steps';
 import { clearPlan, setPlan } from '@/lib/planStore';
@@ -11,6 +16,7 @@ const planFixture = {
   status: 'ok',
   dataset_version: 'osm-overpass-1679d061',
   availability_scope: 'network_feasible_not_live_confirmed',
+  journey_id: 'j-1',
   options: [
     {
       id: 'option-1',
@@ -68,6 +74,7 @@ const planFixture = {
 jest.mock('expo-router', () => ({
   ...jest.requireActual('expo-router'),
   useLocalSearchParams: jest.fn(() => ({ option: 'option-1' })),
+  useRouter: jest.fn(() => ({ push: jest.fn() })),
 }));
 
 describe('JourneyStepsScreen (Phase 5 item 10)', () => {
@@ -82,7 +89,9 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     const screen = await render(<JourneyStepsScreen />);
 
     expect(await screen.findByText('Your journey')).toBeTruthy();
-    expect(screen.getByText('20.7–30.2 min (network estimate) · 1 transfer · walk 142 m')).toBeTruthy();
+    expect(
+      screen.getByText('20.7–30.2 min (network estimate) · 1 transfer · walk 142 m'),
+    ).toBeTruthy();
     expect(
       screen.getByText('Board route 101 at Willium Junction heading towards Colombo Fort.'),
     ).toBeTruthy();
@@ -95,6 +104,44 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     expect(screen.getByText(/dataset osm-overpass-1679d061/)).toBeTruthy();
     expect(screen.getByText(/network feasible, not live confirmed/)).toBeTruthy();
     expect(rtlScreen.getByTestId('step-3')).toBeTruthy();
+    // Guided mode entry (Phase 6): a saved plan can start a session.
+    expect(screen.getByTestId('start-guided-button')).toBeTruthy();
+  });
+
+  it('starts a guided session from the saved plan', async () => {
+    setPlan(planFixture as never);
+    const push = jest.fn();
+    const { useRouter } = jest.requireMock('expo-router') as {
+      useRouter: jest.Mock;
+    };
+    useRouter.mockReturnValue({ push });
+
+    const fetchMock = jest.fn((url: string) => {
+      if (url.includes('/journey-sessions')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ session_id: 'sess-9' }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyStepsScreen />);
+    const user = userEvent.setup();
+    await user.press(await screen.findByTestId('start-guided-button'));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/journey-sessions'),
+        expect.objectContaining({ body: expect.stringContaining('"option_id":"option-1"') }),
+      );
+      expect(push).toHaveBeenCalledWith({
+        pathname: '/active-journey',
+        params: { session: 'sess-9' },
+      });
+    });
   });
 
   it('explains itself when opened without a plan', async () => {
@@ -110,3 +157,4 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     expect(screen.getByText(/Start from the plan screen/)).toBeTruthy();
   });
 });
+

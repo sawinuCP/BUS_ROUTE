@@ -19,6 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ title: 'Sri Lanka Journey Planner' }} />
         <Stack.Screen name="journey" options={{ title: 'Plan a journey' }} />
         <Stack.Screen name="journey-steps" options={{ title: 'Your journey' }} />
+        <Stack.Screen name="active-journey" options={{ title: 'Do this now' }} />
       </Stack>
     </ThemeProvider>
   );

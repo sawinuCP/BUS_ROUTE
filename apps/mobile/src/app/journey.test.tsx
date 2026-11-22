@@ -30,6 +30,7 @@ const planResponse = {
   status: 'ok',
   dataset_version: 'osm-overpass-1679d061',
   availability_scope: 'network_feasible_not_live_confirmed',
+  journey_id: 'j-1',
   options: [
     {
       id: 'option-1',

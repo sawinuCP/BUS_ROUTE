@@ -1,9 +1,11 @@
-import { useLocalSearchParams } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { startJourneySession } from '@/lib/api';
 import type { PlanOption, PlanStep } from '@/lib/api';
 import { getOptionById, getPlan } from '@/lib/planStore';
 
@@ -27,8 +29,28 @@ const ACTION_LABELS: Record<PlanStep['action'], string> = {
 };
 
 export default function JourneyStepsScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{ option?: string }>();
   const option: PlanOption | null = getOptionById(params.option);
+  const plan = getPlan();
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  async function startGuided() {
+    if (!plan?.journey_id || !option) {
+      return;
+    }
+    setStarting(true);
+    setStartError(null);
+    try {
+      const session = await startJourneySession(plan.journey_id, option.id);
+      router.push({ pathname: '/active-journey', params: { session: session.session_id } });
+    } catch {
+      setStartError('Could not start the guided journey — check the connection and try again.');
+    } finally {
+      setStarting(false);
+    }
+  }
 
   if (!option) {
     return (
@@ -71,6 +93,25 @@ export default function JourneyStepsScreen() {
           ))}
         </View>
 
+        {plan?.journey_id ? (
+          <View style={styles.startBlock}>
+            <Pressable
+              style={styles.startButton}
+              onPress={() => void startGuided()}
+              disabled={starting}
+              testID="start-guided-button"
+            >
+              <ThemedText type="smallBold">
+                {starting ? 'Starting…' : 'Start guided journey'}
+              </ThemedText>
+            </Pressable>
+            <ThemedText type="small" themeColor="textSecondary">
+              Follows this option step by step with manual confirmations — you stay in control.
+            </ThemedText>
+            {startError ? <ThemedText type="small">{startError}</ThemedText> : null}
+          </View>
+        ) : null}
+
         <ThemedText type="small" themeColor="textSecondary">
           Grounded in dataset {getPlan()?.dataset_version ?? 'unknown'} · network feasible, not
           live confirmed — service frequency is not checked. Waiting times are unknown; board the
@@ -108,5 +149,14 @@ const styles = StyleSheet.create({
   },
   stepText: {
     flex: 1,
+  },
+  startBlock: {
+    gap: Spacing.one,
+  },
+  startButton: {
+    borderRadius: 8,
+    backgroundColor: 'rgba(32,138,239,0.15)',
+    paddingVertical: 12,
+    alignItems: 'center',
   },
 });

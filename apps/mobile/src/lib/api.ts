@@ -213,11 +213,151 @@ export async function planJourney(
   const response = await fetchImpl(`${apiBaseUrl}/api/v1/journeys/plan`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ origin, destination, preferences, language }),
+    body: JSON.stringify({ origin, destination, preferences, language, save: true }),
     signal: AbortSignal.timeout(30_000), // planning may route walking legs
   });
   if (!response.ok) {
     throw new Error(`journey planning failed with status ${response.status}`);
   }
   return (await response.json()) as JourneyPlanResponse;
+}
+
+/* ------------------------------------------------------------------ */
+/* Active journey sessions (Phase 6 — manual progress, no GPS state).  */
+/* ------------------------------------------------------------------ */
+
+export interface SessionStep {
+  action: PlanStep['action'];
+  text: string;
+  facts: Record<string, unknown>;
+  confidence: string;
+}
+
+export type SessionStatus =
+  | 'overview'
+  | 'active_walk'
+  | 'active_ride'
+  | 'transfer_walk'
+  | 'final_walk'
+  | 'needs_confirmation'
+  | 'paused'
+  | 'replanning'
+  | 'completed'
+  | 'cancelled';
+
+export interface JourneySessionState {
+  session_id: string;
+  journey_id: string;
+  option_id: string;
+  status: SessionStatus;
+  dataset_version: string;
+  language: string;
+  availability_scope: string;
+  progress: { current_step: number; step_count: number };
+  current_step: SessionStep | null;
+  next_step: SessionStep | null;
+  replanned?: boolean;
+  previous_dataset_version?: string;
+  /** Backend's grounded reasons when `replanned` is false. */
+  notes?: string[];
+}
+
+export type SessionEventType =
+  | 'started'
+  | 'step_advanced'
+  | 'paused'
+  | 'resumed'
+  | 'completed'
+  | 'cancelled';
+
+/** Starts a guided session from a saved plan option (must exist server-side). */
+export async function startJourneySession(
+  journeyId: string,
+  optionId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<JourneySessionState> {
+  const response = await fetchImpl(`${apiBaseUrl}/api/v1/journey-sessions`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ journey_id: journeyId, option_id: optionId }),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`starting the journey session failed with status ${response.status}`);
+  }
+  return (await response.json()) as JourneySessionState;
+}
+
+/** Current session state — restore after background or process restart. */
+export async function getJourneySession(
+  sessionId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<JourneySessionState> {
+  const response = await fetchImpl(`${apiBaseUrl}/api/v1/journey-sessions/${sessionId}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`session fetch failed with status ${response.status}`);
+  }
+  return (await response.json()) as JourneySessionState;
+}
+
+/**
+ * Applies one manual progress event. The caller treats HTTP 409 as "the
+ * backend refused this transition" (e.g. advancing while paused) — the app
+ * never works around the state machine.
+ */
+export async function postSessionEvent(
+  sessionId: string,
+  eventType: SessionEventType,
+  stepIndex?: number,
+  note?: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<JourneySessionState> {
+  const response = await fetchImpl(
+    `${apiBaseUrl}/api/v1/journey-sessions/${sessionId}/events`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event_type: eventType,
+        ...(stepIndex !== undefined ? { step_index: stepIndex } : {}),
+        ...(note !== undefined ? { note } : {}),
+      }),
+      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`session event failed with status ${response.status}`);
+  }
+  return (await response.json()) as JourneySessionState;
+}
+
+/**
+ * Re-plans the session against the active dataset; `originOverride` supports
+ * missed-stop recovery ("I am now at stop X"). Returns `replanned: false`
+ * with the backend's reasons when no replacement journey exists.
+ */
+export async function replanJourneySession(
+  sessionId: string,
+  originOverride?: PlanEndpoint,
+  fetchImpl: typeof fetch = fetch,
+): Promise<JourneySessionState> {
+  const response = await fetchImpl(
+    `${apiBaseUrl}/api/v1/journey-sessions/${sessionId}/replan`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(originOverride !== undefined ? { origin: originOverride } : {}),
+      }),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`session replan failed with status ${response.status}`);
+  }
+  return (await response.json()) as JourneySessionState;
 }
