@@ -1,4 +1,6 @@
 import {
+  act,
+  fireEvent,
   render,
   screen as rtlScreen,
   userEvent,
@@ -7,31 +9,57 @@ import {
 
 import JourneyStepsScreen from '@/app/journey-steps';
 import { clearCachedPlan, readCachedPlan, saveCachedPlan, setCachedPlanOption } from '@/lib/planDb';
+import { clearQueuedReportsForTests, readQueuedReports } from '@/lib/reportQueue';
 import { clearPlan, setPlan } from '@/lib/planStore';
 
-// expo-sqlite backs the offline plan cache (Phase 7) — mocked so cache
-// restore after a restart is testable without the native module.
+// expo-sqlite backs the offline plan cache (Phase 7) and the offline report
+// queue (Phase 7 item 4) — mocked so both are testable without the native
+// module. Routes by SQL so the two stores share one fake database.
 jest.mock('expo-sqlite', () => {
-  const rows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
-  const db = {
-    execSync: jest.fn(),
-    runSync: (sql: string, params?: unknown[]) => {
-      if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
-        rows.length = 0;
-        rows.push({ plan_json: params[0] as string, option_id: null, saved_at: params[1] as string });
+  const planRows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
+  const reportRows: { id: number; payload_json: string; queued_at: string }[] = [];
+  let nextReportId = 1;
+  const runSync = (sql: string, params?: unknown[]) => {
+    if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
+      planRows.length = 0;
+      planRows.push({ plan_json: params[0] as string, option_id: null, saved_at: params[1] as string });
+    }
+    if (sql.startsWith('UPDATE cached_plan') && params) {
+      if (planRows[0]) {
+        planRows[0].option_id = params[0] as string;
       }
-      if (sql.startsWith('UPDATE cached_plan') && params) {
-        if (rows[0]) {
-          rows[0].option_id = params[0] as string;
-        }
+    }
+    if (sql.startsWith('INSERT INTO pending_reports') && params) {
+      reportRows.push({
+        id: nextReportId++,
+        payload_json: params[0] as string,
+        queued_at: params[1] as string,
+      });
+    }
+    if (sql.startsWith('DELETE FROM pending_reports WHERE id =') && params) {
+      const index = reportRows.findIndex((row) => row.id === params[0]);
+      if (index >= 0) {
+        reportRows.splice(index, 1);
       }
-      if (sql.startsWith('DELETE FROM cached_plan')) {
-        rows.length = 0;
-      }
-    },
-    getAllSync: () => rows.map((row) => ({ ...row })),
+    }
+    if (sql.startsWith('DELETE FROM pending_reports') && !sql.includes('WHERE')) {
+      reportRows.length = 0;
+    }
+    if (sql.startsWith('DELETE FROM cached_plan')) {
+      planRows.length = 0;
+    }
   };
-  return { openDatabaseSync: () => db };
+  const getAllSync = (sql: string) => {
+    if (sql.includes('FROM cached_plan')) {
+      return planRows.map((row) => ({ ...row }));
+    }
+    if (sql.includes('FROM pending_reports')) {
+      return reportRows.map((row) => ({ ...row }));
+    }
+    return [];
+  };
+  const db = { execSync: jest.fn(), runSync, getAllSync };
+  return { openDatabaseSync: () => db, __reportRows: reportRows };
 });
 
 // Router params are mocked (the screen reads the selected option id); the
@@ -107,6 +135,7 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
   beforeEach(() => {
     clearPlan();
     clearCachedPlan();
+    clearQueuedReportsForTests();
   });
   afterEach(() => {
     clearPlan();
@@ -233,6 +262,127 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
 
     expect(await screen.findByText('Your journey')).toBeTruthy();
     expect(screen.queryByTestId('cached-banner')).toBeNull();
+  });
+
+  it('reports a problem with explicit consent (Phase 7 items 4 + 7)', async () => {
+    const reportBodies: string[] = [];
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/reports')) {
+        reportBodies.push(String(init?.body));
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: 'r-1',
+            category: 'wrong_stop',
+            status: 'submitted',
+            duplicate: false,
+          }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    setPlan(planFixture as never);
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+
+    await userEvent.setup().press(rtlScreen.getByTestId('report-button'));
+    expect(await screen.findByTestId('report-panel')).toBeTruthy();
+    // All plan item 7 categories are offered.
+    for (const category of [
+      'wrong_stop',
+      'route_variant',
+      'direction',
+      'transfer_path',
+      'landmark_name',
+      'fare',
+      'access_attribute',
+      'outdated_data',
+      'other',
+    ]) {
+      expect(rtlScreen.getByTestId(`report-category-${category}`)).toBeTruthy();
+    }
+
+    await userEvent.setup().press(rtlScreen.getByTestId('report-category-wrong_stop'));
+    await userEvent.setup().type(
+      rtlScreen.getByTestId('report-description'),
+      'The 138 boards at the opposite side of the road here.',
+    );
+
+    // Submit is disabled without consent — nothing is stored without it.
+    expect(rtlScreen.getByTestId('report-submit').props.accessibilityState.disabled).toBe(true);
+    await act(async () => {
+      fireEvent(rtlScreen.getByTestId('report-consent'), 'valueChange', true);
+    });
+    expect(rtlScreen.getByTestId('report-submit').props.accessibilityState.disabled).toBe(false);
+
+    await userEvent.setup().press(rtlScreen.getByTestId('report-submit'));
+
+    expect(await screen.findByText(/A moderator reviews it before any data changes/)).toBeTruthy();
+    expect(reportBodies).toHaveLength(1);
+    const body = JSON.parse(reportBodies[0]) as {
+      consent: boolean;
+      category: string;
+      subject_type: string;
+      subject_id: string;
+      dataset_version_label: string;
+    };
+    expect(body.consent).toBe(true);
+    expect(body.category).toBe('wrong_stop');
+    // Grounded: the report is tied to the journey and the dataset version.
+    expect(body.subject_type).toBe('journey');
+    expect(body.subject_id).toBe('j-1');
+    expect(body.dataset_version_label).toBe('osm-overpass-1679d061');
+    expect(readQueuedReports()).toEqual([]);
+  });
+
+  it('queues the report offline and syncs it on the next mount (Phase 7 item 4)', async () => {
+    let reportCalls = 0;
+    const fetchMock = jest.fn((url: string) => {
+      if (url.includes('/reports')) {
+        reportCalls += 1;
+        if (reportCalls === 1) {
+          return Promise.reject(new TypeError('network unreachable'));
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: async () => ({ id: 'r-2', category: 'wrong_stop', status: 'submitted' }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    setPlan(planFixture as never);
+    const first = await render(<JourneyStepsScreen />);
+    await first.findByText('Your journey');
+
+    await userEvent.setup().press(rtlScreen.getByTestId('report-button'));
+    await userEvent.setup().press(rtlScreen.getByTestId('report-category-wrong_stop'));
+    await userEvent.setup().type(
+      rtlScreen.getByTestId('report-description'),
+      'The 138 boards at the opposite side of the road here.',
+    );
+    await act(async () => {
+      fireEvent(rtlScreen.getByTestId('report-consent'), 'valueChange', true);
+    });
+    await userEvent.setup().press(rtlScreen.getByTestId('report-submit'));
+
+    // Honest offline handling: queued on the device, never dropped.
+    expect(await first.findByText(/saved on this device and will sync automatically/)).toBeTruthy();
+    expect(readQueuedReports()).toHaveLength(1);
+
+    // Next mount (or next screen visit) flushes the queued report.
+    const second = await render(<JourneyStepsScreen />);
+    await second.findByText('Your journey');
+    await waitFor(() => {
+      expect(readQueuedReports()).toEqual([]);
+      expect(reportCalls).toBe(2); // retry with the SAME client key
+    });
+    expect(second.queryByText(/waiting to sync/)).toBeNull();
   });
 });
 

@@ -391,7 +391,71 @@ export async function replanJourneySession(
     },
   );
   if (!response.ok) {
-    throw new Error(`session replan failed with status ${response.status}`);
+    throw new ApiStatusError(
+      response.status,
+      `session replan failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as JourneySessionState;
+}
+
+/* ------------------------------------------------------------------ */
+/* Traveller data reports (Phase 7, plan items 4 and 7).               */
+/* ------------------------------------------------------------------ */
+
+export type ReportCategory =
+  | 'wrong_stop'
+  | 'route_variant'
+  | 'direction'
+  | 'transfer_path'
+  | 'landmark_name'
+  | 'fare'
+  | 'access_attribute'
+  | 'outdated_data'
+  | 'other';
+
+export type ReportSubjectType = 'stop' | 'route' | 'pattern' | 'transfer' | 'journey';
+
+export interface ReportRequest {
+  category: ReportCategory;
+  description: string;
+  /** Must be true: explicit consent to store and review the report. */
+  consent: boolean;
+  /** Client-generated idempotency key, stable across offline retries. */
+  client_key: string;
+  subject_type?: ReportSubjectType;
+  subject_id?: string;
+  dataset_version_label?: string;
+}
+
+export interface ReportResponse {
+  id: string;
+  category: ReportCategory;
+  status: 'submitted' | 'under_review' | 'accepted' | 'rejected' | 'needs_info';
+  duplicate?: boolean;
+}
+
+/**
+ * Submits one traveller report. The backend rejects consent-less requests —
+ * nothing is ever stored without the traveller's explicit agreement — and is
+ * idempotent per `client_key`, so an offline-queued retry can never create a
+ * duplicate. A 400/422 is a permanent refusal (the caller must not retry).
+ */
+export async function submitReport(
+  request: ReportRequest,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ReportResponse> {
+  const response = await fetchImpl(`${apiBaseUrl}/api/v1/reports`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new ApiStatusError(
+      response.status,
+      `report submission failed with status ${response.status}`,
+    );
+  }
+  return (await response.json()) as ReportResponse;
 }

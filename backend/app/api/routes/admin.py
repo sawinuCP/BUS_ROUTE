@@ -304,3 +304,57 @@ async def list_verifications(
         }
         for record in records
     ]
+
+
+# ---- Moderation/triage queue for traveller reports (Phase 7 item 8) ------
+#
+# Acceptance creates a **candidate** dataset version (never published, the
+# active dataset is untouched); rejection and needs-info change nothing
+# outside the report row. Final admin authentication lands in Phase 9 —
+# this router is mounted only outside production (see app.main).
+
+
+class ReportReview(BaseModel):
+    decision: Literal["accept", "reject", "needs_info"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+@router.get("/reports")
+async def moderation_queue(
+    session: SessionDep,
+    status: str | None = None,
+) -> Any:
+    """Traveller reports triage queue (oldest first; optional status filter)."""
+    from app.modules.reports import list_reports, serialize_report
+
+    reports = await list_reports(session, status)
+    return [serialize_report(report) for report in reports]
+
+
+@router.post("/reports/{report_id}/review")
+async def review_report_endpoint(
+    session: SessionDep, report_id: uuid.UUID, review: ReportReview
+) -> Any:
+    """Apply one moderation decision to a traveller report."""
+    from app.modules.reports import ReportAlreadyReviewed, review_report, serialize_report
+
+    try:
+        report, candidate = await review_report(session, report_id, review.decision, review.note)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReportAlreadyReviewed as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await session.commit()
+    payload = serialize_report(report)
+    payload["candidate_version"] = (
+        {
+            "id": str(candidate.id),
+            "version_label": candidate.version_label,
+            "status": candidate.status,
+        }
+        if candidate is not None
+        else None
+    )
+    return payload
