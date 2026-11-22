@@ -8,32 +8,102 @@ import {
 } from '@testing-library/react-native';
 
 import ActiveJourneyScreen from '@/app/active-journey';
+import { saveCachedPlan } from '@/lib/planDb';
+import {
+  clearQueuedEventsForTests,
+  enqueueProgressEvent,
+  readQueuedEvents,
+} from '@/lib/progressQueue';
 import { clearActiveSession } from '@/lib/sessionDb';
 
 // Native modules do not exist under jest — mock them while keeping the
 // screen's rendering/interaction contract testable. Manual progress and the
-// GPS-suggestion safeguards are the assertions under test here.
+// GPS-suggestion safeguards are the assertions under test here. The sqlite
+// mock routes by SQL so all three local stores (active session, offline plan
+// cache, pending offline progress events) share one fake database.
 
 jest.mock('expo-sqlite', () => {
-  const rows: { session_id: string; snapshot: string | null; saved_at: string }[] = [];
+  const sessionRows: { session_id: string; snapshot: string | null; saved_at: string }[] = [];
+  const planRows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
+  const eventRows: {
+    id: number;
+    session_id: string;
+    event_type: string;
+    step_index: number | null;
+    note: string | null;
+    queued_at: string;
+  }[] = [];
+  let nextEventId = 1;
   const runSync = (sql: string, params?: unknown[]) => {
-    if (sql.startsWith('INSERT OR REPLACE') && params) {
-      rows.length = 0;
-      rows[0] = {
+    if (sql.startsWith('INSERT OR REPLACE INTO active_session') && params) {
+      sessionRows.length = 0;
+      sessionRows.push({
         session_id: params[0] as string,
         snapshot: params[1] as string | null,
-        saved_at: '',
-      };
+        saved_at: params[2] as string,
+      });
     }
-    if (sql.startsWith('DELETE')) {
-      rows.length = 0;
+    if (sql.startsWith('INSERT INTO pending_session_events') && params) {
+      eventRows.push({
+        id: nextEventId++,
+        session_id: params[0] as string,
+        event_type: params[1] as string,
+        step_index: (params[2] as number | null) ?? null,
+        note: (params[3] as string | null) ?? null,
+        queued_at: params[4] as string,
+      });
+    }
+    if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
+      planRows.length = 0;
+      planRows.push({
+        plan_json: params[0] as string,
+        option_id: null,
+        saved_at: params[1] as string,
+      });
+    }
+    if (sql.startsWith('UPDATE cached_plan') && params) {
+      if (planRows[0]) {
+        planRows[0].option_id = params[0] as string;
+      }
+    }
+    if (sql.startsWith('DELETE FROM pending_session_events WHERE id =') && params) {
+      const index = eventRows.findIndex((row) => row.id === params[0]);
+      if (index >= 0) {
+        eventRows.splice(index, 1);
+      }
+    }
+    if (sql.startsWith('DELETE FROM pending_session_events WHERE session_id') && params) {
+      const sessionId = params[0] as string;
+      for (let i = eventRows.length - 1; i >= 0; i -= 1) {
+        if (eventRows[i].session_id === sessionId) {
+          eventRows.splice(i, 1);
+        }
+      }
+    }
+    if (sql.startsWith('DELETE FROM pending_session_events') && !sql.includes('WHERE')) {
+      eventRows.length = 0;
+    }
+    if (sql.startsWith('DELETE FROM active_session')) {
+      sessionRows.length = 0;
+    }
+    if (sql.startsWith('DELETE FROM cached_plan')) {
+      planRows.length = 0;
     }
   };
-  const db = {
-    execSync: jest.fn(),
-    runSync,
-    getAllSync: () => rows,
+  const getAllSync = (sql: string, params?: unknown[]) => {
+    if (sql.includes('FROM active_session')) {
+      return sessionRows.map((row) => ({ ...row }));
+    }
+    if (sql.includes('FROM cached_plan')) {
+      return planRows.map((row) => ({ ...row }));
+    }
+    if (sql.includes('FROM pending_session_events')) {
+      const sessionId = (params?.[0] as string) ?? '';
+      return eventRows.filter((row) => row.session_id === sessionId).map((row) => ({ ...row }));
+    }
+    return [];
   };
+  const db = { execSync: jest.fn(), runSync, getAllSync };
   return { openDatabaseSync: () => db };
 });
 
@@ -98,6 +168,45 @@ const sessionAfterAdvance = {
   next_step: null,
 };
 
+/** Cached plan for the offline projection tests (steps match the session). */
+const offlinePlanFixture = {
+  status: 'ok',
+  dataset_version: 'osm-overpass-1679d061',
+  availability_scope: 'network_feasible_not_live_confirmed',
+  journey_id: 'j-1',
+  options: [
+    {
+      id: 'option-1',
+      summary: {
+        estimated_duration_minutes: { min: 12, max: 18 },
+        walking_distance_m: 240,
+        transfer_count: 0,
+        confidence: 'unverified_pattern',
+      },
+      labels: ['fastest'],
+      warnings: [],
+      legs: [],
+      steps: [
+        {
+          action: 'WALK_TO_STOP',
+          text: 'Walk 240 m to the boarding point.',
+          facts: {},
+          confidence: 'unverified',
+        },
+        {
+          action: 'BOARD_TRANSIT',
+          text: 'Board route 101 at A.',
+          facts: {},
+          confidence: 'unverified',
+        },
+      ],
+    },
+  ],
+  labels: { fastest: 0 },
+  notes: [],
+  language: 'en',
+};
+
 function urlFetch(handler: (url: string, init?: RequestInit) => unknown) {
   return jest.fn((url: string, init?: RequestInit) =>
     Promise.resolve(handler(url, init) as unknown as Response),
@@ -108,6 +217,7 @@ describe('ActiveJourneyScreen (Phase 6 items 2–6)', () => {
   beforeEach(() => {
     locationMock.__gpsState.callbacks.length = 0;
     clearActiveSession();
+    clearQueuedEventsForTests();
   });
   afterEach(() => {
     // Clear call history but KEEP mock implementations: restoreAllMocks
@@ -249,6 +359,66 @@ describe('ActiveJourneyScreen (Phase 6 items 2–6)', () => {
     const screen = await render(<ActiveJourneyScreen />);
     expect(await screen.findByTestId('no-session')).toBeTruthy();
     expect(screen.getByText('No active journey')).toBeTruthy();
+  });
+
+  it('queues offline progress and keeps the journey followable (Phase 7 item 3)', async () => {
+    // The cached plan supplies the option's steps for the offline projection.
+    saveCachedPlan(offlinePlanFixture as never);
+    const fetchMock = urlFetch((url) => {
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      if (url.endsWith('/events')) {
+        // Network failure (not a 409): the event cannot reach the backend.
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+    await screen.findByTestId('do-this-now');
+
+    const user = userEvent.setup();
+    await user.press(rtlScreen.getByTestId('confirm-button'));
+
+    // The next step appears immediately (local projection from cached steps)…
+    expect(await screen.findByText('Board route 101 at A.')).toBeTruthy();
+    expect(screen.getByText(/Step 2 of 2/)).toBeTruthy();
+    // …with the honest offline banner and the queued event count.
+    expect(screen.getByTestId('sync-banner')).toBeTruthy();
+    expect(screen.getByText(/progress saved on this device and will sync/)).toBeTruthy();
+    expect(readQueuedEvents('sess-1')).toHaveLength(1);
+    expect(readQueuedEvents('sess-1')[0].event_type).toBe('step_advanced');
+    // The backend state was never faked: the event is pending, not applied.
+  });
+
+  it('replays queued offline events when the connection returns', async () => {
+    saveCachedPlan(offlinePlanFixture as never);
+    enqueueProgressEvent('sess-1', { event_type: 'step_advanced', step_index: 1 });
+    const fetchMock = urlFetch((url) => {
+      if (url.endsWith('/events')) {
+        return { ok: true, status: 200, json: async () => sessionAfterAdvance };
+      }
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+
+    // After restore, the queued event replays in order and the server state
+    // (now step 2) is adopted, with the sync result surfaced honestly.
+    expect(await screen.findByText('Board route 101 at A.')).toBeTruthy();
+    expect(await screen.findByTestId('sync-note')).toBeTruthy();
+    expect(screen.getByText('Synced 1 offline progress change.')).toBeTruthy();
+    expect(readQueuedEvents('sess-1')).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/events'),
+      expect.objectContaining({ body: expect.stringContaining('"event_type":"step_advanced"') }),
+    );
   });
 });
 

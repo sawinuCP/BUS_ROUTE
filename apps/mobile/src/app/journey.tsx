@@ -13,6 +13,7 @@ import {
   type SearchHit,
 } from '@/lib/api';
 import { setPlan } from '@/lib/planStore';
+import { saveCachedPlan, setCachedPlanOption } from '@/lib/planDb';
 
 /**
  * Journey planning + results comparison (Phase 5, plan items 9–10).
@@ -144,6 +145,7 @@ export default function JourneyScreen() {
       );
       setPlanState(response);
       setPlan(response); // hand-off for the steps screen
+      saveCachedPlan(response); // offline cache (Phase 7 item 1)
     } catch {
       setError('Planning failed — check the backend connection and try again.');
     } finally {
@@ -152,6 +154,7 @@ export default function JourneyScreen() {
   }
 
   function openOption(option: PlanOption) {
+    setCachedPlanOption(option.id); // the cache must know which option to restore
     router.push({
       pathname: '/journey-steps',
       params: { option: option.id },

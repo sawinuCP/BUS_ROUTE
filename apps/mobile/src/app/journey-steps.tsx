@@ -6,17 +6,23 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { startJourneySession } from '@/lib/api';
-import type { PlanOption, PlanStep } from '@/lib/api';
-import { getOptionById, getPlan } from '@/lib/planStore';
+import type { JourneyPlanResponse, PlanOption, PlanStep } from '@/lib/api';
+import { getOptionById, getPlan, setPlan } from '@/lib/planStore';
+import { readCachedPlan } from '@/lib/planDb';
 
 /**
- * Step-by-step instructions (Phase 5, plan item 10).
+ * Step-by-step instructions (Phase 5, plan item 10; Phase 7 items 1–2).
  *
  * Renders the option's ordered `steps` exactly as the backend's deterministic
  * templates produced them — the app never rewrites or reorders instruction
  * text. The honesty footer repeats the dataset version and the
  * "network feasible, not live confirmed" scope so a traveller can never mistake
  * a plan for a live departure board.
+ *
+ * Offline support (Phase 7): when the in-memory hand-off is empty (app
+ * restart), the last cached plan is restored from SQLite and shown with an
+ * explicit "saved on this device" banner (cache age + capabilities note) —
+ * the app never presents cached content as fresh.
  */
 
 const ACTION_LABELS: Record<PlanStep['action'], string> = {
@@ -28,11 +34,53 @@ const ACTION_LABELS: Record<PlanStep['action'], string> = {
   WALK_TO_DESTINATION: 'Arrive',
 };
 
+function cacheAgeLabel(savedAt: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - Date.parse(savedAt)) / 60_000));
+  if (minutes < 1) {
+    return 'just now';
+  }
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours} h ago`;
+  }
+  return `${Math.round(hours / 24)} d ago`;
+}
+
+interface StepsBoot {
+  option: PlanOption | null;
+  plan: JourneyPlanResponse | null;
+  /** Cache `saved_at` when the view is restored from the offline cache. */
+  fromCache: string | null;
+}
+
+function bootstrapSteps(optionParam: string | undefined): StepsBoot {
+  const storeOption = getOptionById(optionParam);
+  if (storeOption) {
+    return { option: storeOption, plan: getPlan(), fromCache: null };
+  }
+  const cached = readCachedPlan();
+  if (!cached) {
+    return { option: null, plan: null, fromCache: null };
+  }
+  setPlan(cached.plan); // restore the hand-off so "Start guided journey" works
+  const optionId = optionParam ?? cached.option_id ?? undefined;
+  const option = cached.plan.options.find((candidate) => candidate.id === optionId) ?? null;
+  return { option, plan: cached.plan, fromCache: cached.saved_at };
+}
+
 export default function JourneyStepsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ option?: string }>();
-  const option: PlanOption | null = getOptionById(params.option);
-  const plan = getPlan();
+  // Read once at mount: the plan comes either from the in-memory hand-off
+  // (normal flow) or from the offline cache (restart). SQLite reads are
+  // synchronous, so no loading state is needed. Cache restore also updates
+  // the in-memory store (module variable, not React state).
+  const [boot] = useState<StepsBoot>(() => bootstrapSteps(params.option));
+  const option = boot.option;
+  const plan = boot.plan;
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -68,6 +116,15 @@ export default function JourneyStepsScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <ThemedText type="subtitle">Your journey</ThemedText>
+        {boot.fromCache ? (
+          <View style={styles.cachedBanner} testID="cached-banner">
+            <ThemedText type="smallBold">Saved on this device · {cacheAgeLabel(boot.fromCache)}</ThemedText>
+            <ThemedText type="small">
+              If you are offline, planning, search and live checks are unavailable — the steps
+              below remain followable as written.
+            </ThemedText>
+          </View>
+        ) : null}
         <ThemedText type="smallBold">
           {option.summary.estimated_duration_minutes.min}–
           {option.summary.estimated_duration_minutes.max} min (network estimate) ·{' '}
@@ -113,7 +170,7 @@ export default function JourneyStepsScreen() {
         ) : null}
 
         <ThemedText type="small" themeColor="textSecondary">
-          Grounded in dataset {getPlan()?.dataset_version ?? 'unknown'} · network feasible, not
+          Grounded in dataset {boot.plan?.dataset_version ?? 'unknown'} · network feasible, not
           live confirmed — service frequency is not checked. Waiting times are unknown; board the
           next bus on the shown route.
         </ThemedText>
@@ -133,6 +190,14 @@ const styles = StyleSheet.create({
   steps: {
     gap: Spacing.one,
     marginTop: Spacing.one,
+  },
+  cachedBanner: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    padding: Spacing.two,
+    gap: Spacing.one,
+    backgroundColor: 'rgba(128,128,128,0.12)',
   },
   step: {
     flexDirection: 'row',

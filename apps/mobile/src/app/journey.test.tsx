@@ -3,6 +3,32 @@ import { render, screen as rtlScreen, userEvent } from '@testing-library/react-n
 import JourneyScreen from '@/app/journey';
 import { clearPlan, getPlan } from '@/lib/planStore';
 
+// The offline plan cache (Phase 7) is backed by expo-sqlite — mocked here so
+// the cache write on a successful plan is testable without the native module.
+jest.mock('expo-sqlite', () => {
+  const rows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
+  const db = {
+    execSync: jest.fn(),
+    runSync: (sql: string, params?: unknown[]) => {
+      if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
+        rows.length = 0;
+        rows.push({ plan_json: params[0] as string, option_id: null, saved_at: params[1] as string });
+      }
+      if (sql.startsWith('UPDATE cached_plan') && params) {
+        if (rows[0]) {
+          rows[0].option_id = params[0] as string;
+        }
+      }
+      if (sql.startsWith('DELETE FROM cached_plan')) {
+        rows.length = 0;
+      }
+    },
+    getAllSync: () => rows.map((row) => ({ ...row })),
+    __rows: rows,
+  };
+  return { openDatabaseSync: () => db, __rows: rows };
+});
+
 // userEvent is required: search and planning update state asynchronously
 // after the press resolves.
 
@@ -99,6 +125,7 @@ async function pickStopsAndPlan(screen: Awaited<ReturnType<typeof render>>, fetc
 describe('JourneyScreen results (Phase 5 items 9–10)', () => {
   beforeEach(() => {
     clearPlan();
+    (jest.requireMock('expo-sqlite').__rows as unknown[]).length = 0;
   });
   afterEach(() => {
     jest.restoreAllMocks();
@@ -121,6 +148,12 @@ describe('JourneyScreen results (Phase 5 items 9–10)', () => {
     ).toBeTruthy();
     // The plan is handed to the steps screen via the store.
     expect(getPlan()?.options[0]?.id).toBe('option-1');
+    // ...and cached for offline use (Phase 7 item 1), with verbatim steps.
+    const sqliteMock = jest.requireMock('expo-sqlite') as {
+      __rows: { plan_json: string }[];
+    };
+    expect(sqliteMock.__rows).toHaveLength(1);
+    expect(sqliteMock.__rows[0].plan_json).toContain('Board route 101 at Kollupitiya Junction halt.');
   });
 
   it('renders no_route honestly with the backend reasons', async () => {

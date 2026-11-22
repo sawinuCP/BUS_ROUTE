@@ -270,6 +270,18 @@ export type SessionEventType =
   | 'completed'
   | 'cancelled';
 
+/** Error carrying the HTTP status so callers can separate 409 conflicts
+ * (the backend refused a transition) from network/offline failures. */
+export class ApiStatusError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiStatusError';
+    this.status = status;
+  }
+}
+
 /** Starts a guided session from a saved plan option (must exist server-side). */
 export async function startJourneySession(
   journeyId: string,
@@ -330,7 +342,7 @@ export async function postSessionEvent(
     },
   );
   if (!response.ok) {
-    throw new Error(`session event failed with status ${response.status}`);
+    throw new ApiStatusError(response.status, `session event failed with status ${response.status}`);
   }
   return (await response.json()) as JourneySessionState;
 }

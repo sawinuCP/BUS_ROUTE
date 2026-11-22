@@ -6,7 +6,33 @@ import {
 } from '@testing-library/react-native';
 
 import JourneyStepsScreen from '@/app/journey-steps';
+import { clearCachedPlan, readCachedPlan, saveCachedPlan, setCachedPlanOption } from '@/lib/planDb';
 import { clearPlan, setPlan } from '@/lib/planStore';
+
+// expo-sqlite backs the offline plan cache (Phase 7) — mocked so cache
+// restore after a restart is testable without the native module.
+jest.mock('expo-sqlite', () => {
+  const rows: { plan_json: string; option_id: string | null; saved_at: string }[] = [];
+  const db = {
+    execSync: jest.fn(),
+    runSync: (sql: string, params?: unknown[]) => {
+      if (sql.startsWith('INSERT OR REPLACE INTO cached_plan') && params) {
+        rows.length = 0;
+        rows.push({ plan_json: params[0] as string, option_id: null, saved_at: params[1] as string });
+      }
+      if (sql.startsWith('UPDATE cached_plan') && params) {
+        if (rows[0]) {
+          rows[0].option_id = params[0] as string;
+        }
+      }
+      if (sql.startsWith('DELETE FROM cached_plan')) {
+        rows.length = 0;
+      }
+    },
+    getAllSync: () => rows.map((row) => ({ ...row })),
+  };
+  return { openDatabaseSync: () => db };
+});
 
 // Router params are mocked (the screen reads the selected option id); the
 // plan itself arrives through the in-memory store, exactly as the plan screen
@@ -78,6 +104,10 @@ jest.mock('expo-router', () => ({
 }));
 
 describe('JourneyStepsScreen (Phase 5 item 10)', () => {
+  beforeEach(() => {
+    clearPlan();
+    clearCachedPlan();
+  });
   afterEach(() => {
     clearPlan();
     jest.restoreAllMocks();
@@ -155,6 +185,54 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     expect(await screen.findByTestId('no-plan')).toBeTruthy();
     expect(screen.getByText('No plan in progress')).toBeTruthy();
     expect(screen.getByText(/Start from the plan screen/)).toBeTruthy();
+  });
+
+  it('restores the journey from the offline cache after a restart (Phase 7 item 1)', async () => {
+    // Nothing in the in-memory store (fresh process) — the cache has the plan.
+    saveCachedPlan(planFixture as never);
+    setCachedPlanOption('option-1');
+
+    const screen = await render(<JourneyStepsScreen />);
+
+    // Steps render verbatim from the cache...
+    expect(await screen.findByText('Board route 101 at Willium Junction heading towards Colombo Fort.')).toBeTruthy();
+    expect(screen.getByText('Board route 141 at Manning Place halt.')).toBeTruthy();
+    // ...with the honest saved-on-device banner (Phase 7 item 2).
+    expect(screen.getByTestId('cached-banner')).toBeTruthy();
+    expect(screen.getByText(/Saved on this device · /)).toBeTruthy();
+    expect(
+      screen.getByText(/planning, search and live checks are unavailable/),
+    ).toBeTruthy();
+    // Cache restore also revives the guided-mode entry point.
+    expect(screen.getByTestId('start-guided-button')).toBeTruthy();
+    // And the in-memory hand-off is restored for the next screen.
+    expect(readCachedPlan()?.option_id).toBe('option-1');
+  });
+
+  it('shows the honest no-plan state when the requested option is not cached', async () => {
+    saveCachedPlan(planFixture as never); // cache holds option-1 only
+    const { useLocalSearchParams } = jest.requireMock('expo-router') as {
+      useLocalSearchParams: jest.Mock;
+    };
+    useLocalSearchParams.mockReturnValue({ option: 'option-99' });
+
+    const screen = await render(<JourneyStepsScreen />);
+
+    expect(await screen.findByTestId('no-plan')).toBeTruthy();
+    expect(screen.queryByTestId('cached-banner')).toBeNull();
+  });
+
+  it('shows no cached banner when the plan came from the live flow', async () => {
+    setPlan(planFixture as never);
+    const { useLocalSearchParams } = jest.requireMock('expo-router') as {
+      useLocalSearchParams: jest.Mock;
+    };
+    useLocalSearchParams.mockReturnValue({ option: 'option-1' });
+
+    const screen = await render(<JourneyStepsScreen />);
+
+    expect(await screen.findByText('Your journey')).toBeTruthy();
+    expect(screen.queryByTestId('cached-banner')).toBeNull();
   });
 });
 
