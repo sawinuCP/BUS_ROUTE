@@ -23,15 +23,21 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tests.evaluation.cases import (  # noqa: E402
+    CLASSIFICATION_REPORTS,
+    EVALUATION_CASES,
+    SCENARIOS,
+)
 
 from app.modules.ai_assistance import (  # noqa: E402
     create_provider,
     validate_classification_output,
     validate_model_output,
 )
-from app.modules.reports import REPORT_CATEGORIES  # noqa: E402
 from app.modules.ai_assistance.prompts import (  # noqa: E402
     CLASSIFICATION_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
@@ -43,12 +49,8 @@ from app.modules.ai_assistance.providers import (  # noqa: E402
     ProviderError,
 )
 from app.modules.ai_assistance.validation import ValidationFailure  # noqa: E402
+from app.modules.reports import REPORT_CATEGORIES  # noqa: E402
 from app.platform.config import get_settings  # noqa: E402
-from tests.evaluation.cases import (  # noqa: E402
-    CLASSIFICATION_REPORTS,
-    EVALUATION_CASES,
-    SCENARIOS,
-)
 
 LIVE_SUBSET_IDS: tuple[str, ...] = (
     "explain-g001",
@@ -71,8 +73,7 @@ async def main() -> int:
         " · base URL from environment (key never printed)",
         "- Validators: the exact `validate_model_output` /"
         " `validate_classification_output` used by the endpoints.",
-        "- Fixed live subset; the full offline set runs in CI"
-        " (`tests/evaluation/`).",
+        "- Fixed live subset; the full offline set runs in CI (`tests/evaluation/`).",
         "",
         "| Case | Expected | Outcome | Latency (s) |",
         "|---|---|---|---|",
@@ -120,13 +121,9 @@ async def main() -> int:
         try:
             if kind == "explanation":
                 assert bundle is not None
-                validate_model_output(
-                    completion.text, bundle, require_entity_mention=True
-                )
+                validate_model_output(completion.text, bundle, require_entity_mention=True)
             else:
-                validate_classification_output(
-                    completion.text, list(REPORT_CATEGORIES)
-                )
+                validate_classification_output(completion.text, list(REPORT_CATEGORIES))
         except ValidationFailure as exc:
             if expect == "reject":
                 rejected += 1
@@ -135,9 +132,7 @@ async def main() -> int:
                 )
                 return "reject-ok"
             failures += 1
-            lines.append(
-                f"| {case_id} | accept | FAILED validation (`{exc}`) | {latency:.2f} |"
-            )
+            lines.append(f"| {case_id} | accept | FAILED validation (`{exc}`) | {latency:.2f} |")
             return "accept-failed"
         if expect == "accept":
             accepted += 1
@@ -181,8 +176,7 @@ async def main() -> int:
             f"- Latency: min {min(latencies):.2f}s · median"
             f" {sorted(latencies)[len(latencies) // 2]:.2f}s · max"
             f" {max(latencies):.2f}s",
-            "- Translation/latency beyond this subset: deferred with D-7"
-            " (English-only today).",
+            "- Translation/latency beyond this subset: deferred with D-7 (English-only today).",
             "",
         ]
     else:

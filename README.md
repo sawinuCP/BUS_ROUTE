@@ -40,9 +40,13 @@ All project documentation lives under `docs/` (consolidated per ADR-0001):
 
 | Location | Contents |
 |---|---|
-| `docs/product/` | Product knowledge base, documents `00`–`09` plus the implementation plan (`11_IMPLEMENTATION_PLAN.md`) |
+| `docs/product/` | Product knowledge base, documents `00`–`09` plus the implementation plan (`11_IMPLEMENTATION_PLAN.md`), pilot-release checklist and support/data-correction process |
 | `docs/architecture/` | Final architecture package, documents `00`–`17` plus `README.md` and `MANIFEST.json` |
 | `docs/adr/` | Architecture Decision Records (template + ADR-0001 onward) |
+| `docs/runbooks/` | Operator procedures (`RUNBOOK.md`: admin auth + rotation, version lifecycle, jobs/scheduler) |
+| `docs/status/` | Living development status report (current phase, test results, issue log, remaining path) |
+| `docs/evidence/` | Committed verification evidence (load tests, plan benchmarks, Valhalla PoC) |
+| `docs/research/` | Research notes (field-verification approach) |
 | `docs/audits/` | Phase audit reports (starting with `phase-0-repository-audit.md`) |
 
 ## Start here

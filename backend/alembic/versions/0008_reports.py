@@ -58,13 +58,9 @@ def upgrade() -> None:
         """
     )
     op.execute(
-        "CREATE UNIQUE INDEX uq_transport_reports_client_key"
-        " ON transport_reports (client_key)"
+        "CREATE UNIQUE INDEX uq_transport_reports_client_key ON transport_reports (client_key)"
     )
-    op.execute(
-        "CREATE INDEX ix_transport_reports_status"
-        " ON transport_reports (status, created_at)"
-    )
+    op.execute("CREATE INDEX ix_transport_reports_status ON transport_reports (status, created_at)")
 
 
 def downgrade() -> None:

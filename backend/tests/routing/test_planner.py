@@ -411,7 +411,7 @@ async def test_plan_endpoint_contract(
     from app.platform.config import get_settings
     from app.platform.db import dispose_engine
     from tests.integration.conftest import _CLEANUP_ORDER
-    from tests.integration.test_plan_cache_and_saved import FakeCacheStore
+    from tests.routing.test_plan_cache_and_saved import FakeCacheStore
 
     # Endpoint tests must not touch the real Redis client (its connection pool
     # binds to one event loop; crossing loops corrupts teardown).
@@ -631,7 +631,7 @@ async def test_no_route_suggestions_are_serialized_in_the_payload(
     from app.platform.config import get_settings
     from app.platform.db import dispose_engine
     from tests.integration.conftest import _CLEANUP_ORDER
-    from tests.integration.test_plan_cache_and_saved import FakeCacheStore
+    from tests.routing.test_plan_cache_and_saved import FakeCacheStore
 
     monkeypatch.setattr("app.api.routes.journeys._cache", lambda: FakeCacheStore())
 

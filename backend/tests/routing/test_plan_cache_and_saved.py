@@ -21,7 +21,7 @@ from app.main import app
 from app.platform.config import get_settings
 from app.platform.db import dispose_engine
 from tests.integration.conftest import _CLEANUP_ORDER
-from tests.integration.test_planner import _add_pattern, _seed_base
+from tests.routing.test_planner import _add_pattern, _seed_base
 
 
 class FakeCacheStore:

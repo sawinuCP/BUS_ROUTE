@@ -34,7 +34,7 @@ from app.main import app
 from app.platform.config import get_settings
 from app.platform.db import dispose_engine
 from tests.integration.conftest import _CLEANUP_ORDER
-from tests.integration.test_plan_cache_and_saved import (
+from tests.routing.test_plan_cache_and_saved import (
     FakeCacheStore,
     _plan_body,
     _seed_direct_committed,

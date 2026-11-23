@@ -27,7 +27,6 @@ import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import httpx
 
@@ -85,7 +84,6 @@ async def main() -> int:
     parser.add_argument("--seconds", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-    rng = random.Random(args.seed)
 
     pairs = await _representative_pairs(min(20, max(4, args.users)))
     if not pairs:
@@ -170,8 +168,7 @@ async def main() -> int:
         " cache-served after the first), 30% stop search, 20% health;"
         " 50–200 ms think time.",
         f"- Requests: **{total}** · wall {wall:.1f}s · throughput **{rps:.1f} req/s**.",
-        f"- Transport errors: {len(errors)}"
-        + (f" ({dict(Counter(errors))})" if errors else ""),
+        f"- Transport errors: {len(errors)}" + (f" ({dict(Counter(errors))})" if errors else ""),
         "",
         "## Status distribution",
         "",
@@ -208,4 +205,3 @@ async def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(main()))
-

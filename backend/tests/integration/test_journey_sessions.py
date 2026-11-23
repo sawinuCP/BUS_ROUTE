@@ -19,8 +19,8 @@ from app.main import app
 from app.platform.config import get_settings
 from app.platform.db import dispose_engine
 from tests.integration.conftest import _CLEANUP_ORDER
-from tests.integration.test_plan_cache_and_saved import FakeCacheStore
-from tests.integration.test_planner import _add_pattern, _seed_base
+from tests.routing.test_plan_cache_and_saved import FakeCacheStore
+from tests.routing.test_planner import _add_pattern, _seed_base
 
 _NA = "00000000-0000-0000-0000-000000000000"
 
