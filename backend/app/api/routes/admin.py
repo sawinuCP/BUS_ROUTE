@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.modules.data_ingestion.adapters.file import FileSourceAdapter
@@ -329,6 +329,27 @@ async def moderation_queue(
 
     reports = await list_reports(session, status)
     return [serialize_report(report) for report in reports]
+
+
+@router.get("/reports/{report_id}/classification-suggestion")
+async def report_classification_suggestion(
+    session: SessionDep, request: Request, report_id: uuid.UUID
+) -> Any:
+    """AI category suggestion for one report (Phase 8 item 5).
+
+    **Suggestion only**: the report row is never modified here — a human
+    moderator reviews and decides via the review endpoint. Always answers
+    200 with either a validated AI suggestion or the keyword-based fallback.
+    """
+    from app.modules.ai_assistance import suggest_classification
+    from app.modules.reports import get_report, serialize_report
+
+    report = await get_report(session, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"report {report_id} not found")
+    client_key = request.client.host if request.client else "unknown"
+    result = await suggest_classification(serialize_report(report), get_settings(), client_key)
+    return result.serialize() | {"report_id": str(report_id), "current_category": report.category}
 
 
 @router.post("/reports/{report_id}/review")

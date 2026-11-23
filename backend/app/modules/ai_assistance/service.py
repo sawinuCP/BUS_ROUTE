@@ -16,21 +16,30 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from app.modules.ai_assistance.facts import FactsBundle, build_facts_bundle
-from app.modules.ai_assistance.prompts import SYSTEM_PROMPT, build_user_message
+from app.modules.ai_assistance.prompts import (
+    CLASSIFICATION_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    build_classification_user_message,
+    build_user_message,
+)
 from app.modules.ai_assistance.providers import (
     ProviderConfigError,
     ProviderError,
     create_provider,
 )
 from app.modules.ai_assistance.validation import (
+    ValidatedClassification,
     ValidatedExplanation,
     ValidationFailure,
+    validate_classification_output,
     validate_model_output,
 )
+from app.modules.reports import REPORT_CATEGORIES
 
 AI_NOTE = (
     "AI-generated explanation, grounded only in the plan facts shown above —"
@@ -176,7 +185,10 @@ def _fallback(
 
 async def _generate(provider: Any, bundle: FactsBundle, mode: str) -> ValidatedExplanation:
     completion = await provider.complete(SYSTEM_PROMPT, build_user_message(bundle, mode))
-    return validate_model_output(completion.text, bundle)
+    require_entity = mode == "explain_step" and bool(
+        bundle.allowed_route_codes or bundle.allowed_stop_names
+    )
+    return validate_model_output(completion.text, bundle, require_entity_mention=require_entity)
 
 
 async def explain(
@@ -227,4 +239,153 @@ async def explain(
         cites=validated.cites,
         dataset_version=bundle.dataset_version,
         notes=(AI_NOTE, ENGLISH_NOTE),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Report classification suggestions (item 5 — human decides, AI suggests)
+# --------------------------------------------------------------------------- #
+
+CLASSIFICATION_NOTE = (
+    "AI category suggestion for the moderation queue — a human moderator"
+    " decides; nothing about the report changes automatically."
+)
+KEYWORD_NOTE = "Keyword-based suggestion (no AI was used); a human moderator decides."
+
+
+@dataclass(frozen=True)
+class ClassificationResult:
+    suggested_category: str
+    rationale: str
+    source: str  # "ai" | "deterministic_fallback"
+    provider: str | None
+    model: str | None
+    notes: tuple[str, ...]
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "suggested_category": self.suggested_category,
+            "rationale": self.rationale,
+            "source": self.source,
+            "provider": self.provider,
+            "model": self.model,
+            "notes": list(self.notes),
+        }
+
+
+_CATEGORY_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("fare", "fare"),
+    ("price", "fare"),
+    ("ticket", "fare"),
+    ("charged", "fare"),
+    ("conductor", "fare"),
+    ("step-free", "access_attribute"),
+    ("wheelchair", "access_attribute"),
+    ("ramp", "access_attribute"),
+    ("shelter", "access_attribute"),
+    ("accessib", "access_attribute"),
+    ("wrong stop", "wrong_stop"),
+    ("different stop", "wrong_stop"),
+    ("opposite side", "wrong_stop"),
+    ("stop location", "wrong_stop"),
+    ("not this stop", "wrong_stop"),
+    ("direction", "direction"),
+    ("headsign", "direction"),
+    ("opposite way", "direction"),
+    ("wrong way", "direction"),
+    ("transfer", "transfer_path"),
+    ("change buses", "transfer_path"),
+    ("walk between", "transfer_path"),
+    ("outdated", "outdated_data"),
+    ("no longer", "outdated_data"),
+    ("closed", "outdated_data"),
+    ("variant", "route_variant"),
+    ("pattern", "route_variant"),
+    ("different route", "route_variant"),
+    ("landmark", "landmark_name"),
+    ("name is wrong", "landmark_name"),
+    ("renamed", "landmark_name"),
+)
+
+
+def _deterministic_classification(description: str) -> ValidatedClassification:
+    """Keyword-based fallback classifier — honest, rule-based, no AI."""
+    lowered = description.lower()
+    for keyword, category in _CATEGORY_KEYWORDS:
+        if keyword in lowered:
+            rationale = (
+                f"Keyword-based suggestion: the report mentions '{keyword}',"
+                f" which maps to the '{category}' category. A human moderator"
+                " decides."
+            )
+            return ValidatedClassification(category, rationale)
+    rationale = (
+        "Keyword-based suggestion: no category keyword matched the report"
+        " text, so 'other' is the honest default. A human moderator decides."
+    )
+    return ValidatedClassification("other", rationale)
+
+
+def _classification_fallback(description: str, note: str) -> ClassificationResult:
+    fallback = _deterministic_classification(description)
+    return ClassificationResult(
+        suggested_category=fallback.suggested_category,
+        rationale=fallback.rationale,
+        source="deterministic_fallback",
+        provider=None,
+        model=None,
+        notes=(note, KEYWORD_NOTE),
+    )
+
+
+async def _generate_classification(
+    provider: Any, report: dict[str, Any], categories: Sequence[str]
+) -> ValidatedClassification:
+    completion = await provider.complete(
+        CLASSIFICATION_SYSTEM_PROMPT, build_classification_user_message(categories, report)
+    )
+    return validate_classification_output(completion.text, categories)
+
+
+async def suggest_classification(
+    report: dict[str, Any],
+    settings: Any,
+    client_key: str,
+    provider: Any | None = None,
+) -> ClassificationResult:
+    """Suggest a category for one traveller report (item 5).
+
+    **Suggestion only** — the caller must never apply it to the report row;
+    a human moderator decides. Same contract as `explain`: enabled flag,
+    throttle, provider, validated structured output, deterministic fallback
+    on any failure.
+    """
+    description = str(report.get("description") or "")
+
+    if not settings.ai_explanations_enabled:
+        return _classification_fallback(
+            description, "AI suggestions are turned off in this deployment."
+        )
+
+    if not get_limiter(settings).allow(client_key):
+        return _classification_fallback(description, "AI suggestions are rate-limited right now.")
+
+    if provider is None:
+        try:
+            provider = create_provider(settings)
+        except ProviderConfigError as exc:
+            return _classification_fallback(description, f"AI unavailable: {exc}")
+
+    try:
+        validated = await _generate_classification(provider, report, list(REPORT_CATEGORIES))
+    except (ProviderError, ValidationFailure) as exc:
+        return _classification_fallback(description, f"AI unavailable: {exc}")
+
+    return ClassificationResult(
+        suggested_category=validated.suggested_category,
+        rationale=validated.rationale,
+        source="ai",
+        provider=getattr(provider, "name", "unknown"),
+        model=getattr(provider, "model", None),
+        notes=(CLASSIFICATION_NOTE, ENGLISH_NOTE),
     )

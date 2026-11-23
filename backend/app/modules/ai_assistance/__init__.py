@@ -24,28 +24,38 @@ from app.modules.ai_assistance.providers import (
     create_provider,
 )
 from app.modules.ai_assistance.service import (
+    CLASSIFICATION_NOTE,
+    KEYWORD_NOTE,
+    ClassificationResult,
     ExplanationResult,
     SlidingWindowLimiter,
     explain,
     get_limiter,
     reset_limiter,
+    suggest_classification,
 )
 from app.modules.ai_assistance.validation import (
+    ValidatedClassification,
     ValidatedExplanation,
     ValidationFailure,
+    validate_classification_output,
     validate_model_output,
 )
 
 __all__ = [
     "AIProvider",
+    "CLASSIFICATION_NOTE",
+    "ClassificationResult",
     "DisabledProvider",
     "ExplanationResult",
     "FactsBundle",
+    "KEYWORD_NOTE",
     "OpenAICompatibleProvider",
     "ProviderCompletion",
     "ProviderConfigError",
     "ProviderError",
     "SlidingWindowLimiter",
+    "ValidatedClassification",
     "ValidatedExplanation",
     "ValidationFailure",
     "build_facts_bundle",
@@ -53,5 +63,7 @@ __all__ = [
     "explain",
     "get_limiter",
     "reset_limiter",
+    "suggest_classification",
+    "validate_classification_output",
     "validate_model_output",
 ]

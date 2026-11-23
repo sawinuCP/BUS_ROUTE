@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -104,11 +105,78 @@ def _check_forbidden_content(explanation: str, bundle: FactsBundle) -> None:
             raise ValidationFailure(f"explanation mentions route '{code}' absent from the facts")
 
 
-def validate_model_output(raw: str, bundle: FactsBundle) -> ValidatedExplanation:
-    """Validate one completion against the bundle; raise on any violation."""
+def _check_entity_mention(explanation: str, bundle: FactsBundle) -> None:
+    """Omission guard: an explanation must engage with the facts it explains.
+
+    When the bundle contains route codes or stop names, the explanation must
+    mention at least one of them — a purely generic answer ("this is a step
+    in your journey") is treated as an omission and falls back.
+    """
+    if not (bundle.allowed_route_codes or bundle.allowed_stop_names):
+        return
+    lowered = explanation.lower()
+    for code in bundle.allowed_route_codes:
+        if re.search(rf"\b{re.escape(code.lower())}\b", lowered):
+            return
+    for name in bundle.allowed_stop_names:
+        if name.lower() in lowered:
+            return
+    raise ValidationFailure("explanation is too generic: it names no route or stop from the facts")
+
+
+def validate_model_output(
+    raw: str, bundle: FactsBundle, *, require_entity_mention: bool = False
+) -> ValidatedExplanation:
+    """Validate one completion against the bundle; raise on any violation.
+
+    `require_entity_mention` turns on the omission guard (used for
+    explain-step responses when the bundle contains route/stop entities).
+    """
     payload = _extract_json_object(raw)
     _check_schema(payload)
     cites = _check_cites(payload, bundle)
     explanation = payload["explanation"].strip()
     _check_forbidden_content(explanation, bundle)
+    if require_entity_mention:
+        _check_entity_mention(explanation, bundle)
     return ValidatedExplanation(explanation=explanation, cites=cites)
+
+
+# --------------------------------------------------------------------------- #
+# Report classification (item 5)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class ValidatedClassification:
+    suggested_category: str
+    rationale: str
+
+
+def validate_classification_output(
+    raw: str, allowed_categories: Sequence[str]
+) -> ValidatedClassification:
+    """Validate one classification completion (item 6 contract).
+
+    Strict JSON with exactly `suggested_category` (one of the allowed
+    categories) and `rationale` (10–600 chars); the rationale must not
+    contain fares/prices, clock times or service frequencies.
+    """
+    payload = _extract_json_object(raw)
+    unexpected = set(payload) - {"suggested_category", "rationale"}
+    if unexpected:
+        raise ValidationFailure(f"unexpected fields in the output: {sorted(unexpected)}")
+    category = payload.get("suggested_category")
+    rationale = payload.get("rationale")
+    if not isinstance(category, str) or category not in allowed_categories:
+        raise ValidationFailure("suggested_category is missing or not an allowed category")
+    if not isinstance(rationale, str) or not 10 <= len(rationale.strip()) <= 600:
+        raise ValidationFailure("rationale missing or outside 10-600 characters")
+    rationale = rationale.strip()
+    if _CURRENCY.search(rationale):
+        raise ValidationFailure("rationale claims a fare/price")
+    if _CLOCK_TIME.search(rationale):
+        raise ValidationFailure("rationale claims a clock time")
+    if _FREQUENCY.search(rationale):
+        raise ValidationFailure("rationale claims a service frequency")
+    return ValidatedClassification(suggested_category=category, rationale=rationale)
