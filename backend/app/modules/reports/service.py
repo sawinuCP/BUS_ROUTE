@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.data_ingestion.models import DatasetVersion
@@ -64,9 +65,24 @@ async def create_report(
         dataset_version_label=dataset_version_label,
         status="submitted",
     )
-    session.add(report)
-    await session.flush()
-    return report, True
+    try:
+        session.add(report)
+        await session.flush()
+        return report, True
+    except IntegrityError:
+        # Phase 9 item 4 (concurrency gate): two identical submissions can
+        # pass the client_key check simultaneously — the unique constraint
+        # is the arbiter. Roll the failed insert back and serve the winner's
+        # row as an idempotent replay, exactly like a serial retry.
+        await session.rollback()
+        existing = (
+            await session.execute(
+                select(TransportReport).where(TransportReport.client_key == client_key)
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        return existing, False
 
 
 async def list_reports(

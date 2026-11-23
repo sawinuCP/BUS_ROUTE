@@ -91,6 +91,21 @@ staging/production (fail closed); only local/test run in dev mode.
 - Single-node caveat: metrics are in-process; aggregate per replica or move
   to Redis/StatsD before scaling out.
 
+## 5b. Load / concurrency testing
+
+- **Concurrency gate** (CI): `backend/tests/integration/test_concurrency.py`
+  runs real in-process concurrent traffic over the seeded test network —
+  plan-race determinism, report idempotency under race, exact rate-limit
+  partitioning, session terminal-event serialization (row locking) and a
+  mixed workload with zero 5xx.
+- **Live load script**: from `backend/`, with the stack running:
+  `python scripts/load_test.py --users 10 --seconds 20` (optionally
+  `--users 25` for a stress pass). It drives representative stop-to-stop
+  plans + search + health with realistic think time, prints
+  throughput/latency percentiles, and writes an evidence report to
+  `docs/evidence/load-baseline-<date>.md`. Re-run after dataset growth or
+  planner changes and diff against the committed baseline.
+
 ## 6. Log stream and audit
 
 - Single-line JSON logs on stdout (request id, level, logger, message +

@@ -102,11 +102,16 @@ async def post_session_event(
 
 @router.post("/journey-sessions/{session_id}/replan")
 async def replan_journey_session(
-    session: SessionDep, session_id: uuid.UUID, request: ReplanRequest
+    session: SessionDep, session_id: uuid.UUID, request: ReplanRequest | None = None
 ) -> Any:
-    """Re-plan the session against the current active dataset version."""
+    """Re-plan the session against the current active dataset version.
+
+    The body is optional: a bare replan (no origin override) needs no body.
+    """
     try:
-        payload = await replan_session(session, session_id, get_walking_router(), request.origin)
+        payload = await replan_session(
+            session, session_id, get_walking_router(), request.origin if request else None
+        )
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if payload is None:

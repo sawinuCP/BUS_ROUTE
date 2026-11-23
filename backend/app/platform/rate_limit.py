@@ -13,27 +13,34 @@ release-checklist item. Tests reset the state via `reset_rate_limiters()`.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from typing import Any
 
 
 class SlidingWindowLimiter:
-    """Tiny per-key sliding-window limiter (60-second window)."""
+    """Tiny per-key sliding-window limiter (60-second window).
+
+    Thread-safe: concurrent requests (async task or worker thread) share the
+    process-wide limiter, so the check-then-record step is atomic.
+    """
 
     def __init__(self, max_per_minute: int) -> None:
         self._max = max_per_minute
         self._events: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
 
     def allow(self, key: str, now: float | None = None) -> bool:
         current = time.monotonic() if now is None else now
-        window = self._events.setdefault(key, deque())
-        while window and current - window[0] > 60.0:
-            window.popleft()
-        if len(window) >= self._max:
-            return False
-        window.append(current)
-        return True
+        with self._lock:
+            window = self._events.setdefault(key, deque())
+            while window and current - window[0] > 60.0:
+                window.popleft()
+            if len(window) >= self._max:
+                return False
+            window.append(current)
+            return True
 
 
 _limiters: dict[str, SlidingWindowLimiter] = {}

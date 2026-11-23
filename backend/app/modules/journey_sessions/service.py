@@ -205,7 +205,11 @@ async def apply_session_event(
     Raises `InvalidTransition` for events the state machine rejects — the API
     layer maps that to 409 so the client learns the rule, not just a failure.
     """
-    row = await session.get(JourneySession, session_id)
+    # FOR UPDATE: concurrent duplicate events (two travellers' devices, or a
+    # retried request racing a terminal transition) must serialize — the
+    # second one must see the already-applied state and be refused (409),
+    # never silently overwrite it.
+    row = await session.get(JourneySession, session_id, with_for_update=True)
     if row is None:
         return None
 
@@ -241,7 +245,7 @@ async def replan_session(
     connects, the session is left untouched and the no_route plan + notes are
     returned (`replanned: false`) — never a fabricated replacement.
     """
-    row = await session.get(JourneySession, session_id)
+    row = await session.get(JourneySession, session_id, with_for_update=True)
     if row is None:
         return None
     if row.status in ("completed", "cancelled"):
