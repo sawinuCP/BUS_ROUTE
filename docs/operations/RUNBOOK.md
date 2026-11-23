@@ -106,6 +106,28 @@ staging/production (fail closed); only local/test run in dev mode.
   `docs/evidence/load-baseline-<date>.md`. Re-run after dataset growth or
   planner changes and diff against the committed baseline.
 
+## 5c. Background jobs (ADR-0004 — Dramatiq + Redis)
+
+- **Architecture**: thin dispatch interface in `app/platform/jobs.py`
+  (the API app stays Dramatiq-free); actors in `app/jobs/actors.py`
+  (`run_source_sync` — 3 retries, bounded backoff, 1h time limit);
+  per-source cadence in `data_sources.update_cadence` using the compact
+  form `30m`/`12h`/`7d` (prose or unset → never auto-synced); the
+  scheduler loop `app/jobs/scheduler.py` dispatches due sources every
+  `SCHEDULED_SYNC_INTERVAL_SECONDS` (default 3600).
+- **Services (compose)**: `worker` (`python -m dramatiq
+  app.jobs.actors --processes 1 --threads 4`) and `scheduler`
+  (`python -m app.jobs.scheduler`). The scheduler is **off by default**
+  (`SCHEDULED_SYNC_ENABLED=false`) — the pilot refreshes sources on
+  demand via the admin endpoints. Enable it in `.env` for automatic
+  refreshes.
+- **Guardrails**: only enabled sources with `access_method = 'api'` and a
+  parseable cadence are auto-synced; a sync run produces the same
+  candidate/validated data as the admin-triggered flow (never
+  auto-published); file/manual sources are skipped honestly; dispatch
+  failures are logged and retried on the next tick (due-ness is
+  time-based, nothing is lost).
+
 ## 6. Log stream and audit
 
 - Single-line JSON logs on stdout (request id, level, logger, message +
