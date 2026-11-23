@@ -18,6 +18,7 @@ from app.modules.journey_sessions.models import (
 )
 from app.modules.journey_sessions.service import (
     apply_session_event,
+    delete_saved_journey,
     get_journey_session,
     get_saved_journey,
     refresh_saved_journey,
@@ -37,6 +38,7 @@ __all__ = [
     "JourneySession",
     "SavedJourney",
     "apply_session_event",
+    "delete_saved_journey",
     "get_journey_session",
     "get_saved_journey",
     "next_status",

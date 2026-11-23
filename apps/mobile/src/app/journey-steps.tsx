@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import {
   ApiStatusError,
+  deleteSavedJourney,
   requestAiExplanation,
   startJourneySession,
   submitReport,
@@ -221,6 +222,30 @@ export default function JourneyStepsScreen() {
     }
   }
 
+  // Self-service deletion (privacy, doc 14): two-tap confirm, honest note.
+  const [deletingJourney, setDeletingJourney] = useState(false);
+  const [deleteNote, setDeleteNote] = useState<string | null>(null);
+
+  async function deleteThisJourney() {
+    if (!plan?.journey_id) {
+      return;
+    }
+    if (!deletingJourney) {
+      setDeletingJourney(true);
+      return;
+    }
+    try {
+      await deleteSavedJourney(plan.journey_id);
+      setDeleteNote(
+        'Deleted from the server. Local copies on this device can be removed by clearing app data.',
+      );
+      setDeletingJourney(false);
+    } catch {
+      setDeleteNote('Could not delete the saved journey — check the connection and try again.');
+      setDeletingJourney(false);
+    }
+  }
+
   async function explainStep(index: number) {
     if (explainedStep === index && !explaining) {
       // Same step pressed again → collapse the panel.
@@ -380,6 +405,24 @@ export default function JourneyStepsScreen() {
               Follows this option step by step with manual confirmations — you stay in control.
             </ThemedText>
             {startError ? <ThemedText type="small">{startError}</ThemedText> : null}
+            {plan?.journey_id ? (
+              <View style={styles.deleteBlock} testID="delete-journey-block">
+                <Pressable
+                  style={[styles.reportButton, deletingJourney ? styles.disabled : null]}
+                  onPress={() => void deleteThisJourney()}
+                  testID="delete-journey-button"
+                >
+                  <ThemedText type="small">
+                    {deletingJourney ? 'Tap again to confirm deletion' : 'Delete this saved journey'}
+                  </ThemedText>
+                </Pressable>
+                {deleteNote ? (
+                  <ThemedText type="small" themeColor="textSecondary" testID="delete-note">
+                    {deleteNote}
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -511,6 +554,9 @@ const styles = StyleSheet.create({
     borderColor: '#999',
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  deleteBlock: {
+    gap: Spacing.one,
   },
   explanationPanel: {
     borderRadius: 8,

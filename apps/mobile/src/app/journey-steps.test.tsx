@@ -562,5 +562,36 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     await screen.findByText('Your journey');
     expect(rtlScreen.queryByTestId('read-steps-aloud-button')).toBeNull();
   });
+
+  it('deletes the saved journey with a two-tap confirm (privacy)', async () => {
+    setPlan(planFixture as never);
+    const deleteCalls: string[] = [];
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/journeys/j-1') && init?.method === 'DELETE') {
+        deleteCalls.push(String(url));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ deleted: true, journey_id: 'j-1' }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+
+    // First press arms the confirm (nothing sent yet).
+    await userEvent.setup().press(rtlScreen.getByTestId('delete-journey-button'));
+    expect(rtlScreen.getByText('Tap again to confirm deletion')).toBeTruthy();
+    expect(deleteCalls).toHaveLength(0);
+
+    // Second press deletes, honestly noting what remains on-device.
+    await userEvent.setup().press(rtlScreen.getByTestId('delete-journey-button'));
+    expect(await screen.findByText(/Deleted from the server/)).toBeTruthy();
+    expect(deleteCalls).toHaveLength(1);
+    expect(screen.getByText(/Local copies on this device/)).toBeTruthy();
+  });
 });
 

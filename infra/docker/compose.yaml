@@ -37,13 +37,13 @@ services:
       timeout: 3s
       retries: 20
 
-  backend:
+  backend: &backend-service
     build:
       context: ../../backend
       dockerfile: Dockerfile
     container_name: sljp-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --no-access-log
-    environment:
+    environment: &backend-env
       APP_ENV: ${APP_ENV:-local}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
@@ -78,6 +78,37 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  # Background jobs (ADR-0004: Dramatiq workers, Redis broker). Runs the
+  # `run_source_sync` actor dispatched by the scheduler or the admin flow.
+  worker:
+    <<: *backend-service
+    container_name: sljp-worker
+    command: python -m dramatiq app.jobs.actors --processes 1 --threads 4
+    ports: []
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Scheduler loop (ADR-0004): dispatches due source syncs per source
+  # cadence. Off by default — enable with SCHEDULED_SYNC_ENABLED=true.
+  scheduler:
+    <<: *backend-service
+    container_name: sljp-scheduler
+    command: python -m app.jobs.scheduler
+    ports: []
+    environment:
+      <<: *backend-env
+      SCHEDULED_SYNC_ENABLED: ${SCHEDULED_SYNC_ENABLED:-false}
+      SCHEDULED_SYNC_INTERVAL_SECONDS: ${SCHEDULED_SYNC_INTERVAL_SECONDS:-3600}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 
   # Walking engine (ADR-0008, pinned 3.5.1 — `latest` segfaulted on this host,
   # I-22). Requires a pre-built tile extract; build it first with:

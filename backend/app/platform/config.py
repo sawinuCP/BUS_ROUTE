@@ -97,6 +97,14 @@ class Settings(BaseSettings):
     error_webhook_url: str = ""
     error_webhook_timeout_seconds: float = 2.0
 
+    # Background jobs (ADR-0004: Dramatiq + Redis broker, thin dispatch
+    # interface in app/platform/jobs.py). `jobs_enabled` gates dispatch;
+    # `scheduled_sync_enabled` gates the scheduler loop (off by default —
+    # the pilot refreshes sources on demand via the admin endpoints).
+    jobs_enabled: bool = True
+    scheduled_sync_enabled: bool = False
+    scheduled_sync_interval_seconds: int = 3600
+
     @property
     def is_local(self) -> bool:
         return self.app_env == "local"

@@ -190,6 +190,23 @@ async def get_journey(session: SessionDep, journey_id: uuid.UUID) -> Any:
     return response
 
 
+@router.delete("/journeys/{journey_id}")
+async def delete_journey(session: SessionDep, journey_id: uuid.UUID) -> Any:
+    """Delete a saved journey (privacy: self-service, no account needed).
+
+    The journey's sessions and events cascade. Local device caches are the
+    app's own SQLite store and are cleared by the app when requested.
+    """
+    from app.modules.journey_sessions import delete_saved_journey
+
+    deleted = await delete_saved_journey(session, journey_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="saved journey not found")
+    await session.commit()
+    increment_counter("sljp_journeys_deleted_total")
+    return {"deleted": True, "journey_id": str(journey_id)}
+
+
 @router.post("/journeys/{journey_id}/refresh")
 async def refresh_journey(session: SessionDep, journey_id: uuid.UUID) -> Any:
     """Re-plan the saved request against the current active dataset version."""

@@ -399,6 +399,25 @@ export async function replanJourneySession(
   return (await response.json()) as JourneySessionState;
 }
 
+/** Deleting a saved journey (privacy: self-service, no account needed). */
+export async function deleteSavedJourney(
+  journeyId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ deleted: boolean; journey_id: string }> {
+  const response = await fetchImpl(`${apiBaseUrl}/api/v1/journeys/${journeyId}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new ApiStatusError(
+      response.status,
+      `journey deletion failed with status ${response.status}`,
+    );
+  }
+  return (await response.json()) as { deleted: boolean; journey_id: string };
+}
+
 /* ------------------------------------------------------------------ */
 /* Grounded AI explanations (Phase 8 — POST /api/v1/ai/explain-step).  */
 /* ------------------------------------------------------------------ */

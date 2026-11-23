@@ -64,6 +64,20 @@ async def get_saved_journey(session: AsyncSession, journey_id: uuid.UUID) -> Sav
     return await session.get(SavedJourney, journey_id)
 
 
+async def delete_saved_journey(session: AsyncSession, journey_id: uuid.UUID) -> bool:
+    """Delete one saved journey (self-service privacy, plan item 13/doc 14).
+
+    Sessions and their events cascade (FK ondelete CASCADE) — the snapshot
+    and the progress trail go with it. Nothing else is touched.
+    """
+    row = await get_saved_journey(session, journey_id)
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.flush()
+    return True
+
+
 def _endpoint_from_payload(payload: dict[str, Any]) -> Endpoint:
     stop_id = payload.get("stop_id")
     lon = payload.get("lon")

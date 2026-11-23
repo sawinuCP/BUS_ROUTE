@@ -12,3 +12,4 @@ geoalchemy2==0.17.1
 shapely==2.0.7
 httpx==0.28.1
 openpyxl==3.1.5  # XLSForm (.xlsx) generation for the Kobo field kit (Phase 1.4)
+dramatiq==2.2.1  # Background jobs per ADR-0004 (Redis broker); platform/jobs.py wraps it

@@ -150,3 +150,29 @@ async def test_saved_journey_snapshot_get_and_refresh(
             assert unknown.status_code == 404
     finally:
         await _cleanup()
+
+
+async def test_saved_journey_self_service_deletion(
+    fake_cache: FakeCacheStore,
+) -> None:
+    """Privacy (doc 14/plan item 13): the holder of the id can delete it."""
+    ids = await _seed_direct_committed()
+    try:
+        with TestClient(app) as client:
+            plan = client.post(
+                "/api/v1/journeys/plan", json={**_plan_body(ids), "save": True}
+            ).json()
+            journey_id = plan["journey_id"]
+
+            deleted = client.delete(f"/api/v1/journeys/{journey_id}")
+            assert deleted.status_code == 200
+            assert deleted.json() == {"deleted": True, "journey_id": journey_id}
+
+            gone = client.get(f"/api/v1/journeys/{journey_id}")
+            assert gone.status_code == 404
+
+            # Deleting again is an honest 404 (idempotent by resource state).
+            again = client.delete(f"/api/v1/journeys/{journey_id}")
+            assert again.status_code == 404
+    finally:
+        await _cleanup()
