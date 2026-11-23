@@ -108,6 +108,10 @@ export default function MapScreen() {
         <ThemedText type="small" themeColor="textSecondary">
           Pilot data — all stops not field-checked yet.
         </ThemedText>
+        {/* ODbL attribution: required for any public display of OpenStreetMap data. */}
+        <ThemedText type="small" themeColor="textSecondary" testID="osm-attribution">
+          Map and stop data © OpenStreetMap contributors (ODbL).
+        </ThemedText>
       </View>
     </ThemedView>
   );

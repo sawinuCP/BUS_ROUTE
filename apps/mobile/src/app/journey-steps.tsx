@@ -20,6 +20,8 @@ import {
 import { getOptionById, getPlan, setPlan } from '@/lib/planStore';
 import { readCachedPlan } from '@/lib/planDb';
 import { enqueueReport, flushQueuedReports, newReportClientKey, readQueuedReports } from '@/lib/reportQueue';
+import { readPreferences } from '@/lib/preferencesDb';
+import { readAloud } from '@/lib/readAloud';
 
 /**
  * Step-by-step instructions (Phase 5, plan item 10; Phase 7 items 1–2).
@@ -119,6 +121,11 @@ export default function JourneyStepsScreen() {
   const [explanation, setExplanation] = useState<AiExplanationResponse | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [explainError, setExplainError] = useState<string | null>(null);
+  // Voice guidance (Phase 6 item 7, P1): explicit-tap read-aloud of the
+  // backend's deterministic step texts (never paraphrased), English-only
+  // until native review (D-7); stops on unmount or toggle-off.
+  const [voiceEnabled] = useState(() => readPreferences().voice_guidance);
+  const [speaking, setSpeaking] = useState(false);
 
   // Queued reports sync at the first opportunity (idempotent per client key).
   useEffect(() => {
@@ -192,6 +199,25 @@ export default function JourneyStepsScreen() {
       setStartError('Could not start the guided journey — check the connection and try again.');
     } finally {
       setStarting(false);
+    }
+  }
+
+  // Read-aloud lifecycle (Phase 6 item 7): stop on unmount.
+  useEffect(() => {
+    const unsubscribe = readAloud.onSpeakingChange(setSpeaking);
+    return () => {
+      unsubscribe();
+      readAloud.stop();
+    };
+  }, []);
+
+  function toggleReadStepsAloud() {
+    if (speaking) {
+      readAloud.stop();
+      return;
+    }
+    if (option) {
+      readAloud.speak(option.steps.map((step) => step.text));
     }
   }
 
@@ -272,6 +298,18 @@ export default function JourneyStepsScreen() {
             • {warning}
           </ThemedText>
         ))}
+
+        {voiceEnabled ? (
+          <Pressable
+            style={styles.readAloudButton}
+            onPress={toggleReadStepsAloud}
+            testID="read-steps-aloud-button"
+          >
+            <ThemedText type="small">
+              {speaking ? 'Stop reading' : 'Read all steps aloud'}
+            </ThemedText>
+          </Pressable>
+        ) : null}
 
         <View style={styles.steps}>
           {option.steps.map((step, index) => (
@@ -465,6 +503,14 @@ const styles = StyleSheet.create({
     borderColor: '#999',
     paddingHorizontal: 10,
     paddingVertical: 4,
+  },
+  readAloudButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   explanationPanel: {
     borderRadius: 8,

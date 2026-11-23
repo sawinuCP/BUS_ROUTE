@@ -42,7 +42,9 @@ describe('SettingsScreen (Phase 7 item 9)', () => {
     expect(screen.getByText(/no account, nothing synced or uploaded/)).toBeTruthy();
     expect(screen.getByText(/native review is complete \(D-7\)/)).toBeTruthy();
     expect(screen.getByText(/verified station order/)).toBeTruthy();
-    expect(screen.getByText(/read-aloud arrives with the grounded AI assistance phase/)).toBeTruthy();
+    expect(
+      screen.getByText(/reads the steps exactly as written — English only until native review/),
+    ).toBeTruthy();
   });
 
   it('persists journey planning preferences immediately', async () => {

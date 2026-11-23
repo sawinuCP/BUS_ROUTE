@@ -64,6 +64,9 @@ describe('MapScreen (Phase 2.1 / D-9)', () => {
     expect(screen.getByTestId('marker-st-1')).toBeTruthy();
     expect(screen.getByTestId('marker-st-2')).toBeTruthy();
     expect(screen.getByText(/not field-checked yet/)).toBeTruthy();
+    // ODbL attribution is always visible with the map data (Phase 9 item 8).
+    expect(screen.getByTestId('osm-attribution')).toBeTruthy();
+    expect(screen.getByText(/© OpenStreetMap contributors/)).toBeTruthy();
   });
 
   it('shows an error message when the stops fetch fails', async () => {

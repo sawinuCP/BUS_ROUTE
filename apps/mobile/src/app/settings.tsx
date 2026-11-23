@@ -188,8 +188,9 @@ export default function SettingsScreen() {
             <ThemedText type="smallBold">Voice guidance (read steps aloud)</ThemedText>
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            The preference is saved now; read-aloud arrives with the grounded AI assistance phase
-            (P1).
+            When on, a read-aloud control appears on the journey screens and reads the steps
+            exactly as written — English only until native review (D-7). Reading always starts
+            from an explicit tap and stops when you pause or leave the screen.
           </ThemedText>
         </View>
 

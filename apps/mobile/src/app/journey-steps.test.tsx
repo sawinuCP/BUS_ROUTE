@@ -131,6 +131,38 @@ jest.mock('expo-router', () => ({
   useRouter: jest.fn(() => ({ push: jest.fn() })),
 }));
 
+// Voice guidance (Phase 6 item 7, P1): the saved preference controls whether
+// the read-aloud control exists; the device TTS is faked and asserted.
+jest.mock('expo-speech', () => {
+  const state = { speakCalls: [] as { text: string; options: unknown }[], stopCount: 0 };
+  return {
+    __speechState: state,
+    speak: jest.fn((text: string, options: unknown) => {
+      state.speakCalls.push({ text, options });
+    }),
+    stop: jest.fn(() => {
+      state.stopCount += 1;
+    }),
+  };
+});
+
+const speechMock = jest.requireMock('expo-speech') as {
+  __speechState: { speakCalls: { text: string }[]; stopCount: number };
+};
+
+jest.mock('@/lib/preferencesDb', () => {
+  const state = { voice_guidance: true };
+  return {
+    __prefsState: state,
+    readPreferences: () => ({ voice_guidance: state.voice_guidance }),
+    updatePreferences: jest.fn(),
+  };
+});
+
+const prefsMock = jest.requireMock('@/lib/preferencesDb') as {
+  __prefsState: { voice_guidance: boolean };
+};
+
 describe('JourneyStepsScreen (Phase 5 item 10)', () => {
   beforeEach(() => {
     clearPlan();
@@ -494,6 +526,41 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     ).toBeTruthy();
     expect(rtlScreen.queryByTestId('explanation-panel')).toBeNull();
     expect(rtlScreen.getByText('Board route 101 at Willium Junction heading towards Colombo Fort.')).toBeTruthy();
+  });
+
+  it('reads all steps aloud on an explicit tap when the preference is on (Phase 6 item 7)', async () => {
+    prefsMock.__prefsState.voice_guidance = true;
+    speechMock.__speechState.speakCalls.length = 0;
+    speechMock.__speechState.stopCount = 0;
+    setPlan(planFixture as never);
+
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+
+    await userEvent.setup().press(rtlScreen.getByTestId('read-steps-aloud-button'));
+
+    // One speak call per deterministic step, in order, verbatim.
+    expect(speechMock.__speechState.speakCalls.map((call) => call.text)).toEqual([
+      'Board route 101 at Willium Junction heading towards Colombo Fort.',
+      'Stay on route 101 and alight at Wellawatte Market.',
+      'Alight at Wellawatte Market.',
+      'Walk 142 m to Manning Place halt to change buses.',
+      'Board route 141 at Manning Place halt.',
+    ]);
+    expect(rtlScreen.getByText('Stop reading')).toBeTruthy();
+
+    await userEvent.setup().press(rtlScreen.getByTestId('read-steps-aloud-button'));
+    expect(speechMock.__speechState.stopCount).toBeGreaterThan(0);
+    expect(rtlScreen.getByText('Read all steps aloud')).toBeTruthy();
+  });
+
+  it('hides the read-aloud control when the preference is off', async () => {
+    prefsMock.__prefsState.voice_guidance = false;
+    setPlan(planFixture as never);
+
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+    expect(rtlScreen.queryByTestId('read-steps-aloud-button')).toBeNull();
   });
 });
 

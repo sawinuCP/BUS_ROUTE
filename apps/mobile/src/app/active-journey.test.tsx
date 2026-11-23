@@ -140,6 +140,38 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ session: 'sess-1' }),
 }));
 
+// Voice guidance (Phase 6 item 7, P1): the saved preference controls whether
+// the read-aloud control exists; the device TTS is faked and asserted.
+jest.mock('expo-speech', () => {
+  const state = { speakCalls: [] as { text: string; options: unknown }[], stopCount: 0 };
+  return {
+    __speechState: state,
+    speak: jest.fn((text: string, options: unknown) => {
+      state.speakCalls.push({ text, options });
+    }),
+    stop: jest.fn(() => {
+      state.stopCount += 1;
+    }),
+  };
+});
+
+const speechMock = jest.requireMock('expo-speech') as {
+  __speechState: { speakCalls: { text: string }[]; stopCount: number };
+};
+
+jest.mock('@/lib/preferencesDb', () => {
+  const state = { voice_guidance: true };
+  return {
+    __prefsState: state,
+    readPreferences: () => ({ voice_guidance: state.voice_guidance }),
+    updatePreferences: jest.fn(),
+  };
+});
+
+const prefsMock = jest.requireMock('@/lib/preferencesDb') as {
+  __prefsState: { voice_guidance: boolean };
+};
+
 const sessionState = {
   session_id: 'sess-1',
   journey_id: 'j-1',
@@ -603,6 +635,54 @@ describe('ActiveJourneyScreen (Phase 6 items 2–6)', () => {
       expect.objectContaining({ method: 'GET' }),
     );
     expect(await screen.findByText(/Step 1 of 2/)).toBeTruthy();
+  });
+
+  it('reads the current and next step aloud on an explicit tap (Phase 6 item 7)', async () => {
+    prefsMock.__prefsState.voice_guidance = true;
+    speechMock.__speechState.speakCalls.length = 0;
+    speechMock.__speechState.stopCount = 0;
+
+    const fetchMock = urlFetch((url) => {
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+    expect(await screen.findByTestId('read-aloud-button')).toBeTruthy();
+
+    await userEvent.setup().press(rtlScreen.getByTestId('read-aloud-button'));
+
+    // Mirrors the "Do this now" card exactly: current step then next step —
+    // the deterministic template wording, never paraphrased.
+    expect(speechMock.__speechState.speakCalls.map((call) => call.text)).toEqual([
+      'Walk 240 m to the boarding point.',
+      'Board route 101 at A.',
+    ]);
+    expect(rtlScreen.getByText('Stop reading')).toBeTruthy();
+
+    // Interruption control: the same control stops the reading.
+    await userEvent.setup().press(rtlScreen.getByTestId('read-aloud-button'));
+    expect(speechMock.__speechState.stopCount).toBeGreaterThan(0);
+    expect(rtlScreen.getByText('Read this step aloud')).toBeTruthy();
+  });
+
+  it('shows no read-aloud control when the preference is off', async () => {
+    prefsMock.__prefsState.voice_guidance = false;
+
+    const fetchMock = urlFetch((url) => {
+      if (url.endsWith('/journey-sessions/sess-1')) {
+        return { ok: true, status: 200, json: async () => sessionState };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<ActiveJourneyScreen />);
+    expect(await screen.findByTestId('do-this-now')).toBeTruthy();
+    expect(rtlScreen.queryByTestId('read-aloud-button')).toBeNull();
   });
 });
 

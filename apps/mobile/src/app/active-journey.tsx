@@ -33,6 +33,8 @@ import {
   replayQueuedEvents,
 } from '@/lib/progressQueue';
 import { clearActiveSession, readActiveSession, saveActiveSession } from '@/lib/sessionDb';
+import { readPreferences } from '@/lib/preferencesDb';
+import { readAloud, stepSpeechTexts } from '@/lib/readAloud';
 
 /**
  * "Do this now" — active journey mode (Phase 6, plan items 2–6, 8).
@@ -69,6 +71,11 @@ export default function ActiveJourneyScreen() {
   const [pendingSync, setPendingSync] = useState(0);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [staleVersion, setStaleVersion] = useState<string | null>(null);
+  // Voice guidance (Phase 6 item 7, P1): only when the saved preference is
+  // on; reading always starts from an explicit tap and stops on pause, on a
+  // new step, and on unmount. English-only until native review (D-7).
+  const [voiceEnabled] = useState(() => readPreferences().voice_guidance);
+  const [speaking, setSpeaking] = useState(false);
   // Recovery flow (Phase 7 item 5): missed-stop / wrong-route / missed-transfer
   // recovery from a **confirmed** stop — the traveller searches and confirms
   // where they actually are; nothing is detected automatically.
@@ -104,7 +111,29 @@ export default function ActiveJourneyScreen() {
     saveActiveSession(next.session_id, JSON.stringify(next));
     samplesRef.current = []; // new step → fresh dwell window
     setSuggestion(null);
+    // Interruption control: a new step stops any current reading — stale
+    // voice for an already-completed step would be wrong.
+    readAloud.stop();
   }, []);
+
+  // Read-aloud lifecycle (Phase 6 item 7): stop on unmount, and stop when
+  // the session enters a non-active state (paused/completed/cancelled).
+  useEffect(() => {
+    const unsubscribe = readAloud.onSpeakingChange(setSpeaking);
+    return () => {
+      unsubscribe();
+      readAloud.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state) {
+      return;
+    }
+    if (state.status === 'paused' || state.status === 'completed' || state.status === 'cancelled') {
+      readAloud.stop();
+    }
+  }, [state]);
 
   // GPS watcher lifecycle (Phase 6 item 5): the switch handler stays purely
   // synchronous; the async permission/watch setup lives in this effect and is
@@ -569,6 +598,23 @@ export default function ActiveJourneyScreen() {
               <ThemedText type="smallBold">{ACTION_LABELS[state.current_step.action]}</ThemedText>
             </View>
             <ThemedText>{state.current_step.text}</ThemedText>
+            {voiceEnabled ? (
+              <Pressable
+                style={styles.readAloudButton}
+                onPress={() => {
+                  if (speaking) {
+                    readAloud.stop();
+                    return;
+                  }
+                  readAloud.speak(stepSpeechTexts(state.current_step, state.next_step));
+                }}
+                testID="read-aloud-button"
+              >
+                <ThemedText type="small">
+                  {speaking ? 'Stop reading' : 'Read this step aloud'}
+                </ThemedText>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <ThemedText type="small">All steps done — confirm below to finish.</ThemedText>
@@ -775,6 +821,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(32,138,239,0.15)',
     paddingHorizontal: 10,
     paddingVertical: 4,
+  },
+  readAloudButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   actions: {
     gap: Spacing.one,
