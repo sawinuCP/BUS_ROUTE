@@ -13,11 +13,13 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.modules.reports import create_report, serialize_report
+from app.platform.config import get_settings
 from app.platform.db import get_session
+from app.platform.rate_limit import get_rate_limiter
 
 router = APIRouter(tags=["reports"])
 
@@ -54,9 +56,16 @@ class ReportCreate(BaseModel):
 
 
 @router.post("/reports", status_code=201)
-async def submit_report(session: SessionDep, request: ReportCreate) -> Any:
+async def submit_report(request: Request, session: SessionDep, body: ReportCreate) -> Any:
     """Store one traveller report (idempotent per `client_key`)."""
-    if not request.consent:
+    settings = get_settings()
+    client_key_addr = request.client.host if request.client else "unknown"
+    if not get_rate_limiter("reports", settings).allow(client_key_addr):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many reports from this client right now — please try again later.",
+        )
+    if not body.consent:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -66,13 +75,13 @@ async def submit_report(session: SessionDep, request: ReportCreate) -> Any:
         )
     report, created = await create_report(
         session,
-        category=request.category,
-        description=request.description,
-        consent=request.consent,
-        client_key=request.client_key,
-        subject_type=request.subject_type,
-        subject_id=request.subject_id,
-        dataset_version_label=request.dataset_version_label,
+        category=body.category,
+        description=body.description,
+        consent=body.consent,
+        client_key=body.client_key,
+        subject_type=body.subject_type,
+        subject_id=body.subject_id,
+        dataset_version_label=body.dataset_version_label,
     )
     await session.commit()
     payload = serialize_report(report)

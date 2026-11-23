@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     # Simple per-client throttle for AI calls (Phase 9 adds real limits).
     ai_requests_per_minute: int = 20
 
+    # Phase 9 — pilot hardening:
+    # Admin bearer token for /admin/* (secret: environment/.env only, never
+    # committed). Unset fails closed outside local/test.
+    admin_api_token: str = ""
+    # Per-client throttle for traveller report submissions (abuse protection).
+    report_rate_limit_per_minute: int = 60
+
     @property
     def is_local(self) -> bool:
         return self.app_env == "local"

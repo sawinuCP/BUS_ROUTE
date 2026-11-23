@@ -14,8 +14,6 @@ Flow for every request:
 
 from __future__ import annotations
 
-import time
-from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +38,7 @@ from app.modules.ai_assistance.validation import (
     validate_model_output,
 )
 from app.modules.reports import REPORT_CATEGORIES
+from app.platform.rate_limit import SlidingWindowLimiter, get_rate_limiter, reset_rate_limiters
 
 AI_NOTE = (
     "AI-generated explanation, grounded only in the plan facts shown above —"
@@ -48,38 +47,19 @@ AI_NOTE = (
 FALLBACK_NOTE = "Built-in deterministic explanation (no AI was used)."
 ENGLISH_NOTE = "Explanations are English-only until native review (D-7)."
 
-
-class SlidingWindowLimiter:
-    """Tiny per-key sliding-window limiter (cost control, item 8).
-
-    Good enough for Phase 8; Phase 9 replaces it with the shared
-    rate-limiting infrastructure.
-    """
-
-    def __init__(self, max_per_minute: int) -> None:
-        self._max = max_per_minute
-        self._events: dict[str, deque[float]] = {}
-
-    def allow(self, key: str, now: float | None = None) -> bool:
-        current = time.monotonic() if now is None else now
-        window = self._events.setdefault(key, deque())
-        while window and current - window[0] > 60.0:
-            window.popleft()
-        if len(window) >= self._max:
-            return False
-        window.append(current)
-        return True
-
-
-_limiter: SlidingWindowLimiter | None = None
+# Phase 9: the limiter moved to the shared platform infrastructure
+# (app.platform.rate_limit) so AI calls and report submissions share one
+# mechanism. Thin wrappers keep the existing call sites and tests stable.
 
 
 def get_limiter(settings: Any) -> SlidingWindowLimiter:
-    """Process-wide limiter (monkeypatchable in tests)."""
-    global _limiter  # noqa: PLW0603
-    if _limiter is None:
-        _limiter = SlidingWindowLimiter(settings.ai_requests_per_minute)
-    return _limiter
+    """The AI namespace's shared limiter (Phase 9 infrastructure)."""
+    return get_rate_limiter("ai", settings)
+
+
+def reset_limiter() -> None:
+    """Compatibility alias for the tests (resets all namespaces)."""
+    reset_rate_limiters()
 
 
 @dataclass(frozen=True)
@@ -154,12 +134,6 @@ def _deterministic_why_route(bundle: FactsBundle) -> str:
         " scheduled arrival."
     )
     return " ".join(part for part in parts if part)
-
-
-def reset_limiter() -> None:
-    """Reset the process-wide limiter (tests)."""
-    global _limiter  # noqa: PLW0603
-    _limiter = None
 
 
 def _fallback(

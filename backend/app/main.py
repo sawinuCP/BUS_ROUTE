@@ -35,6 +35,22 @@ from app.platform.redis_client import close_redis
 logger = logging.getLogger(__name__)
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Baseline hardening headers on every response (Phase 9, doc 14).
+
+    Minimal and API-appropriate: no sniffing, no framing, no referrer leak.
+    HTTPS/HSTS is the reverse-proxy's job in a real deployment.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Attach a request ID and return it in the `X-Request-ID` response header.
 
@@ -87,6 +103,7 @@ def create_app() -> FastAPI:
         )
 
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router, prefix=settings.api_v1_prefix)
     app.include_router(search_router, prefix=settings.api_v1_prefix)

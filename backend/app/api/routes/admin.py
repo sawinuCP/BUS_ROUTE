@@ -29,8 +29,12 @@ from app.modules.data_quality.queue import QAQueueService
 from app.modules.data_quality.scorecard import CoverageScorecardService
 from app.platform.config import get_settings
 from app.platform.db import get_session
+from app.platform.security import audit_admin_action, require_admin
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+# Phase 9: every admin endpoint requires the operator bearer token
+# (ADMIN_API_TOKEN). Dev-mode (unset) is allowed only in local/test and the
+# dependency fails closed elsewhere — see app.platform.security.
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 _registry = SourceRegistry()
 _versions = DatasetVersionService()
@@ -90,12 +94,13 @@ SessionDep = Annotated[Any, Depends(get_session)]
 
 
 @router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
-async def create_source(body: SourceCreate, session: SessionDep) -> Any:
+async def create_source(request: Request, body: SourceCreate, session: SessionDep) -> Any:
     try:
         source = await _registry.create_source(session, **body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     await session.commit()
+    audit_admin_action(request, "source.create", entity=f"source:{source.id}", outcome="created")
     return source
 
 
@@ -105,7 +110,9 @@ async def list_sources(session: SessionDep) -> Any:
 
 
 @router.post("/sources/{source_id}/sync")
-async def sync_source(source_id: uuid.UUID, body: SyncRequest, session: SessionDep) -> Any:
+async def sync_source(
+    source_id: uuid.UUID, request: Request, body: SyncRequest, session: SessionDep
+) -> Any:
     source = await _registry.get_source(session, source_id)
     settings = get_settings()
     service = IngestionService(archive=LocalFilesystemArchive(settings.raw_archive_dir))
@@ -130,6 +137,13 @@ async def sync_source(source_id: uuid.UUID, body: SyncRequest, session: SessionD
             status_code=status.HTTP_400_BAD_REQUEST, detail="source file not found"
         ) from exc
     await session.commit()
+    audit_admin_action(
+        request,
+        "source.sync",
+        entity=f"source:{source_id}",
+        outcome=str(outcome.status),
+        details={"run_id": str(outcome.run_id), "adapter": body.adapter},
+    )
     return outcome.__dict__ | {"run_id": str(outcome.run_id)}
 
 
@@ -154,16 +168,30 @@ async def get_active_version(session: SessionDep) -> Any:
 
 
 @router.post("/dataset-versions/{version_id}/publish", response_model=DatasetVersionOut)
-async def publish_version(version_id: uuid.UUID, session: SessionDep) -> Any:
+async def publish_version(version_id: uuid.UUID, request: Request, session: SessionDep) -> Any:
     version = await _versions.publish(session, version_id)
     await session.commit()
+    audit_admin_action(
+        request,
+        "dataset.publish",
+        entity=f"dataset_version:{version_id}",
+        outcome=str(version.status),
+        details={"version_label": version.version_label},
+    )
     return version
 
 
 @router.post("/dataset-versions/{version_id}/rollback", response_model=DatasetVersionOut)
-async def rollback_version(version_id: uuid.UUID, session: SessionDep) -> Any:
+async def rollback_version(version_id: uuid.UUID, request: Request, session: SessionDep) -> Any:
     version = await _versions.rollback(session, version_id)
     await session.commit()
+    audit_admin_action(
+        request,
+        "dataset.rollback",
+        entity=f"dataset_version:{version_id}",
+        outcome=str(version.status),
+        details={"version_label": version.version_label},
+    )
     return version
 
 
@@ -221,7 +249,9 @@ class VerificationCreate(BaseModel):
 
 
 @router.post("/verifications", status_code=status.HTTP_201_CREATED)
-async def create_verification(body: VerificationCreate, session: SessionDep) -> Any:
+async def create_verification(
+    body: VerificationCreate, session: SessionDep, request: Request
+) -> Any:
     from datetime import UTC
 
     from sqlalchemy import text as _text
@@ -263,6 +293,14 @@ async def create_verification(body: VerificationCreate, session: SessionDep) -> 
     session.add(record)
     await session.commit()
     await session.refresh(record)
+    if request is not None:
+        audit_admin_action(
+            request,
+            "verification.create",
+            entity=f"{body.entity_type}:{body.entity_id}",
+            outcome=body.result,
+            details={"method": body.method, "verification_id": str(record.id)},
+        )
     return {
         "id": str(record.id),
         "entity_type": record.entity_type,
@@ -354,7 +392,7 @@ async def report_classification_suggestion(
 
 @router.post("/reports/{report_id}/review")
 async def review_report_endpoint(
-    session: SessionDep, report_id: uuid.UUID, review: ReportReview
+    session: SessionDep, request: Request, report_id: uuid.UUID, review: ReportReview
 ) -> Any:
     """Apply one moderation decision to a traveller report."""
     from app.modules.reports import ReportAlreadyReviewed, review_report, serialize_report
@@ -368,6 +406,15 @@ async def review_report_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await session.commit()
+    audit_admin_action(
+        request,
+        f"report.{review.decision}",
+        entity=f"transport_report:{report_id}",
+        outcome=review.decision,
+        details={
+            "candidate_version": (str(candidate.id) if candidate is not None else None),
+        },
+    )
     payload = serialize_report(report)
     payload["candidate_version"] = (
         {

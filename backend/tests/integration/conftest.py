@@ -102,6 +102,12 @@ _CLEANUP_ORDER: tuple[str, ...] = (
 async def clean_canonical_tables() -> AsyncIterator[None]:
     """Empty the canonical tables before each integration test (test DB only)."""
     engine = create_async_engine(get_settings().database_url)
+    # This fixture runs after tests/conftest.py's `_clear_settings_cache`, so
+    # the get_settings() call above repopulates the lru_cache with the
+    # fixture-time environment. Clear it again so per-test env overrides
+    # (e.g. ADMIN_API_TOKEN / rate-limit settings via monkeypatch.setenv) are
+    # seen by the code under test.
+    get_settings.cache_clear()
     try:
         try:
             async with engine.begin() as conn:
@@ -112,6 +118,7 @@ async def clean_canonical_tables() -> AsyncIterator[None]:
         yield
     finally:
         await engine.dispose()
+        get_settings.cache_clear()
 
 
 @pytest.fixture

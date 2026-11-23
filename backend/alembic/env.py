@@ -21,7 +21,12 @@ from app.platform.model_registry import Base, import_all_models
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: the default (True) marks every logger
+    # created before this call as disabled — in the test session that wipes
+    # out all app loggers imported at collection time (and made audit-log
+    # assertions impossible). Alembic's own logging config should not
+    # silence the host application's loggers.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Inject the configured database URL (asyncpg driver).
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

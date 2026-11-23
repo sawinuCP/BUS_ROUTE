@@ -8,12 +8,31 @@ from pathlib import Path
 import pytest
 from scripts.import_field_verifications import import_verifications
 from sqlalchemy import text
+from starlette.requests import Request
 
-from app.api.routes.admin import VerificationCreate, create_verification, list_verifications
+from app.api.routes.admin import (
+    VerificationCreate,
+    create_verification,
+    list_verifications,
+)
 from app.modules.data_quality.queue import QAQueueService
 from app.modules.data_quality.scorecard import CoverageScorecardService
 from app.platform.db import dispose_engine, get_session_factory
 from tests.integration.conftest import _seed_route
+
+
+def _audit_request() -> Request:
+    """A minimal Request so the direct service call can record its audit line."""
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/direct-call",
+            "headers": [],
+            "query_string": b"",
+            "client": ("testclient", 0),
+        }
+    )
 
 
 @pytest.fixture
@@ -59,7 +78,7 @@ async def test_verification_records_against_real_entities(db_session) -> None:
         result="verified",
         evidence="GPS confirmed; signboard matches",
     )
-    created = await create_verification(body, db_session)
+    created = await create_verification(body, db_session, _audit_request())
     assert created["result"] == "verified"
     assert created["reviewer"] == "test-walker"
 
@@ -80,7 +99,7 @@ async def test_verification_rejects_unknown_entity(db_session) -> None:
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_verification(body, db_session)
+        await create_verification(body, db_session, _audit_request())
     assert exc_info.value.status_code == 404
 
 

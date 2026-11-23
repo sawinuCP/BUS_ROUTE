@@ -194,6 +194,31 @@ comprehension help on top of the deterministic planner. The contract:
 - **Explanations are English-only** until native review (D-7); the response
   carries the `language` and honesty notes ("follow the step instructions").
 
+## Admin authentication and hardening (Phase 9)
+
+- **Admin endpoints** (`/admin/*`) require the operator bearer token:
+  `Authorization: Bearer <ADMIN_API_TOKEN>` (secret, environment only —
+  never committed). Wrong/missing → 401 `UNAUTHORIZED`; the attempt is
+  audit-logged without the presented credential.
+- **Fail-closed default**: with `ADMIN_API_TOKEN` unset, admin requests are
+  refused with 403 in `staging`/`production` — an unconfigured deployment
+  can never serve admin endpoints. Only `local`/`test` may run in dev mode
+  (the router is only mounted there anyway). OAuth2/OIDC + RBAC replace the
+  single-operator token when identity exists (doc 14).
+- **Audit logging**: every data-changing admin action (source create/sync,
+  dataset publish/rollback, verification create, report review) emits a
+  structured `admin_audit` JSON log line with request id, client, action,
+  entity and outcome — no tokens, bodies or credentials. Publish/rollback
+  and report-review audit trails are a doc 14 requirement.
+- **Rate limiting**: the shared platform limiter (`app.platform.rate_limit`)
+  throttles per client: report submissions (`REPORT_RATE_LIMIT_PER_MINUTE`,
+  429 `RATE_LIMITED`) and AI calls (`AI_REQUESTS_PER_MINUTE`). It is
+  in-process and single-node; a multi-node deployment must back it with
+  Redis or an edge proxy (release-checklist item).
+- **Security headers** on every response: `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+  `Cache-Control: no-store`. HTTPS/HSTS terminates at the reverse proxy.
+
 ## Local-first data and privacy (Phase 7 item 10)
 
 - **Saved journeys**: anonymous (no account), stored server-side as the exact

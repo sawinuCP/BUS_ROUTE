@@ -63,6 +63,10 @@ services:
       AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-600}
       AI_EXPLANATIONS_ENABLED: ${AI_EXPLANATIONS_ENABLED:-true}
       AI_REQUESTS_PER_MINUTE: ${AI_REQUESTS_PER_MINUTE:-20}
+      # Phase 9 hardening: admin bearer token (fail-closed when unset outside
+      # local/test) + per-client report throttle.
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+      REPORT_RATE_LIMIT_PER_MINUTE: ${REPORT_RATE_LIMIT_PER_MINUTE:-60}
     volumes:
       - ../../backend:/srv
     ports:

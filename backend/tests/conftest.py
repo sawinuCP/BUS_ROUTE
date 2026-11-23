@@ -14,6 +14,10 @@ import pytest
 
 os.environ["APP_ENV"] = "test"
 os.environ["LOG_LEVEL"] = "WARNING"
+# Phase 9: admin bearer auth is opt-in per test (monkeypatch.setenv). Force
+# the token OFF here — an empty environment variable wins over the root
+# .env file, so the suite runs in dev-mode (allowed in test env) by default.
+os.environ["ADMIN_API_TOKEN"] = ""
 # I-18: integration tests must never touch development data. Redirect the DB
 # to the dedicated test database (created by the compose init script; the
 # integration-conftest session fixture applies migrations to it automatically).
@@ -29,6 +33,16 @@ def _clear_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters() -> Iterator[None]:
+    """Phase 9: rate limiter state must not leak between tests."""
+    from app.platform.rate_limit import reset_rate_limiters
+
+    reset_rate_limiters()
+    yield
+    reset_rate_limiters()
 
 
 @pytest.fixture
