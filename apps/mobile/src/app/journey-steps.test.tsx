@@ -384,5 +384,116 @@ describe('JourneyStepsScreen (Phase 5 item 10)', () => {
     });
     expect(second.queryByText(/waiting to sync/)).toBeNull();
   });
+
+  it('explains a step with the grounded AI explanation (Phase 8)', async () => {
+    setPlan(planFixture as never);
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/ai/explain-step')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            mode: 'explain_step',
+            source: 'ai',
+            provider: 'fake',
+            model: 'fake-model',
+            explanation:
+              'Board at the halt marked for route 101. The direction label comes from the mapped dataset and is not field-verified.',
+            cites: ['f_step', 'f_summary'],
+            dataset_version: 'osm-overpass-1679d061',
+            notes: ['AI-generated explanation — always follow the step wording.'],
+            language: 'en',
+          }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+    await userEvent.setup().press(rtlScreen.getByTestId('explain-button-0'));
+
+    expect(await screen.findByTestId('explanation-panel')).toBeTruthy();
+    expect(rtlScreen.getByText(/AI explanation · grounded in your plan data/)).toBeTruthy();
+    expect(rtlScreen.getByText(/Board at the halt marked for route 101/)).toBeTruthy();
+    expect(
+      rtlScreen.getByText(/always follow the step wording above/),
+    ).toBeTruthy();
+
+    // Grounded call: the saved journey id + the step index, nothing else.
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/ai/explain-step'),
+      ) as unknown[] | undefined;
+      const body = JSON.parse(String((call?.[1] as RequestInit)?.body)) as {
+        mode: string;
+        journey_id: string;
+        step_index: number;
+        option_index: number;
+      };
+      expect(body.mode).toBe('explain_step');
+      expect(body.journey_id).toBe('j-1');
+      expect(body.step_index).toBe(0);
+      expect(body.option_index).toBe(0);
+    });
+  });
+
+  it('labels the built-in explanation honestly when the AI is unavailable (Phase 8 item 7)', async () => {
+    setPlan(planFixture as never);
+    const fetchMock = jest.fn((url: string) => {
+      if (url.includes('/ai/explain-step')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            mode: 'explain_step',
+            source: 'deterministic_fallback',
+            provider: null,
+            model: null,
+            explanation:
+              'This step: Board route 101 at Willium Junction heading towards Colombo Fort.',
+            cites: [],
+            dataset_version: 'osm-overpass-1679d061',
+            notes: ['AI unavailable: provider down.', 'Built-in deterministic explanation (no AI was used).'],
+            language: 'en',
+          }),
+        } as unknown as Response);
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+    await userEvent.setup().press(rtlScreen.getByTestId('explain-button-1'));
+
+    expect(await screen.findByTestId('explanation-panel')).toBeTruthy();
+    expect(rtlScreen.getByText('Built-in explanation')).toBeTruthy();
+    expect(rtlScreen.queryByText(/AI explanation ·/)).toBeNull();
+    expect(rtlScreen.getByText('Produced by the app itself, no AI involved.')).toBeTruthy();
+  });
+
+  it('stays usable when the explanation request fails offline (Phase 8)', async () => {
+    setPlan(planFixture as never);
+    const fetchMock = jest.fn((url: string) => {
+      if (url.includes('/ai/explain-step')) {
+        return Promise.reject(new TypeError('network unreachable'));
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    jest.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    const screen = await render(<JourneyStepsScreen />);
+    await screen.findByText('Your journey');
+    await userEvent.setup().press(rtlScreen.getByTestId('explain-button-0'));
+
+    // Honest failure: no invented content, the step wording stays in charge.
+    expect(
+      await screen.findByText(/Could not load an explanation — the step wording above is all you need./),
+    ).toBeTruthy();
+    expect(rtlScreen.queryByTestId('explanation-panel')).toBeNull();
+    expect(rtlScreen.getByText('Board route 101 at Willium Junction heading towards Colombo Fort.')).toBeTruthy();
+  });
 });
 

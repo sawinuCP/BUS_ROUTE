@@ -400,6 +400,58 @@ export async function replanJourneySession(
 }
 
 /* ------------------------------------------------------------------ */
+/* Grounded AI explanations (Phase 8 — POST /api/v1/ai/explain-step).  */
+/* ------------------------------------------------------------------ */
+
+export type AiExplanationMode = 'explain_step' | 'why_route';
+
+export interface AiExplanationRequest {
+  mode: AiExplanationMode;
+  /** Preferred: the saved journey (the backend fetches its snapshot). */
+  journey_id?: string;
+  /** Offline-cache path: the inline plan-response snapshot. */
+  journey?: JourneyPlanResponse;
+  option_index?: number;
+  step_index?: number;
+}
+
+export interface AiExplanationResponse {
+  mode: AiExplanationMode;
+  /** 'ai' = validated model output; 'deterministic_fallback' = built-in. */
+  source: 'ai' | 'deterministic_fallback';
+  provider: string | null;
+  model: string | null;
+  explanation: string;
+  cites: string[];
+  dataset_version: string | null;
+  notes: string[];
+  language: string;
+}
+
+/**
+ * Asks for one grounded step explanation. The backend always answers 200 —
+ * either a validated AI explanation grounded in the plan facts (no
+ * coordinates are ever sent), or the built-in deterministic explanation
+ * (provider off/outage/limit). A network failure throws; the caller must
+ * keep showing the step wording, which is always authoritative.
+ */
+export async function requestAiExplanation(
+  request: AiExplanationRequest,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AiExplanationResponse> {
+  const response = await fetchImpl(`${apiBaseUrl}/api/v1/ai/explain-step`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: AbortSignal.timeout(30_000), // model inference can take a moment
+  });
+  if (!response.ok) {
+    throw new ApiStatusError(response.status, `AI explanation failed with status ${response.status}`);
+  }
+  return (await response.json()) as AiExplanationResponse;
+}
+
+/* ------------------------------------------------------------------ */
 /* Traveller data reports (Phase 7, plan items 4 and 7).               */
 /* ------------------------------------------------------------------ */
 

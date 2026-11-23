@@ -71,6 +71,21 @@ class Settings(BaseSettings):
     # out after this TTL; a network-version change invalidates immediately.
     plan_cache_ttl_seconds: int = 3600
 
+    # Grounded AI assistance (Phase 8). The provider adapter is chosen by the
+    # factory in app.modules.ai_assistance.providers from `ai_provider`;
+    # "none" keeps the feature fully deterministic (default: no key needed).
+    # Any OpenAI-compatible chat endpoint works (e.g. CommandCode). The API
+    # key is a secret: environment/.env only, never committed.
+    ai_provider: Literal["none", "openai_compatible"] = "none"
+    ai_base_url: str = ""
+    ai_model: str = ""
+    ai_api_key: str = ""
+    ai_timeout_seconds: float = 20.0
+    ai_max_output_tokens: int = 600
+    ai_explanations_enabled: bool = True
+    # Simple per-client throttle for AI calls (Phase 9 adds real limits).
+    ai_requests_per_minute: int = 20
+
     @property
     def is_local(self) -> bool:
         return self.app_env == "local"

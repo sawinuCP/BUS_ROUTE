@@ -7,8 +7,10 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import {
   ApiStatusError,
+  requestAiExplanation,
   startJourneySession,
   submitReport,
+  type AiExplanationResponse,
   type JourneyPlanResponse,
   type PlanOption,
   type PlanStep,
@@ -111,6 +113,12 @@ export default function JourneyStepsScreen() {
   const [reportConsent, setReportConsent] = useState(false);
   const [reportNote, setReportNote] = useState<string | null>(null);
   const [pendingReports, setPendingReports] = useState(0);
+  // "Explain this step" (Phase 8): grounded AI explanation with a built-in
+  // deterministic fallback. The step wording itself is always authoritative.
+  const [explainedStep, setExplainedStep] = useState<number | null>(null);
+  const [explanation, setExplanation] = useState<AiExplanationResponse | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
 
   // Queued reports sync at the first opportunity (idempotent per client key).
   useEffect(() => {
@@ -187,6 +195,45 @@ export default function JourneyStepsScreen() {
     }
   }
 
+  async function explainStep(index: number) {
+    if (explainedStep === index && !explaining) {
+      // Same step pressed again → collapse the panel.
+      setExplainedStep(null);
+      setExplanation(null);
+      setExplainError(null);
+      return;
+    }
+    setExplainedStep(index);
+    setExplaining(true);
+    setExplanation(null);
+    setExplainError(null);
+    if (!plan) {
+      setExplaining(false);
+      return;
+    }
+    const optionIndex = Math.max(
+      0,
+      plan.options.findIndex((candidate) => candidate.id === option?.id),
+    );
+    try {
+      const result = await requestAiExplanation({
+        mode: 'explain_step',
+        // Prefer the saved-journey ID; fall back to the inline snapshot
+        // (offline-restored cache). The backend strips coordinates itself.
+        ...(plan.journey_id ? { journey_id: plan.journey_id } : { journey: plan }),
+        option_index: optionIndex,
+        step_index: index,
+      });
+      setExplanation(result);
+    } catch {
+      setExplainError(
+        'Could not load an explanation — the step wording above is all you need.',
+      );
+    } finally {
+      setExplaining(false);
+    }
+  }
+
   if (!option) {
     return (
       <ThemedView style={styles.container} testID="no-plan">
@@ -228,11 +275,53 @@ export default function JourneyStepsScreen() {
 
         <View style={styles.steps}>
           {option.steps.map((step, index) => (
-            <View key={`${step.action}-${index}`} style={styles.step} testID={`step-${index}`}>
-              <View style={styles.stepBadge}>
-                <ThemedText type="smallBold">{ACTION_LABELS[step.action]}</ThemedText>
+            <View key={`${step.action}-${index}`} style={styles.stepColumn} testID={`step-${index}`}>
+              <View style={styles.step}>
+                <View style={styles.stepBadge}>
+                  <ThemedText type="smallBold">{ACTION_LABELS[step.action]}</ThemedText>
+                </View>
+                <ThemedText style={styles.stepText}>{step.text}</ThemedText>
               </View>
-              <ThemedText style={styles.stepText}>{step.text}</ThemedText>
+              <View style={styles.explainRow}>
+                <Pressable
+                  style={styles.explainButton}
+                  onPress={() => void explainStep(index)}
+                  testID={`explain-button-${index}`}
+                >
+                  <ThemedText type="small">
+                    {explainedStep === index && explaining
+                      ? 'Explaining…'
+                      : explainedStep === index
+                        ? 'Hide explanation'
+                        : 'Explain this step'}
+                  </ThemedText>
+                </Pressable>
+              </View>
+              {explainedStep === index && explaining ? (
+                <ThemedText type="small" themeColor="textSecondary" testID="explanation-loading">
+                  Asking for a grounded explanation…
+                </ThemedText>
+              ) : null}
+              {explainedStep === index && explainError ? (
+                <ThemedText type="small" testID="explanation-error">
+                  {explainError}
+                </ThemedText>
+              ) : null}
+              {explainedStep === index && explanation ? (
+                <View style={styles.explanationPanel} testID="explanation-panel">
+                  <ThemedText type="smallBold" testID="explanation-source">
+                    {explanation.source === 'ai' ? 'AI explanation · grounded in your plan data' : 'Built-in explanation'}
+                  </ThemedText>
+                  <ThemedText type="small" testID="explanation-text">
+                    {explanation.explanation}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {explanation.source === 'ai'
+                      ? 'Generated only from this plan’s facts — always follow the step wording above. Report anything that looks wrong.'
+                      : 'Produced by the app itself, no AI involved.'}
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
           ))}
         </View>
@@ -362,6 +451,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.two,
+  },
+  stepColumn: {
+    gap: Spacing.one,
+  },
+  explainRow: {
+    paddingLeft: 72,
+  },
+  explainButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  explanationPanel: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#999',
+    padding: Spacing.two,
+    gap: Spacing.one,
+    backgroundColor: 'rgba(128,128,128,0.08)',
   },
   stepBadge: {
     minWidth: 64,

@@ -19,6 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 
 from app.api.routes.admin import router as admin_router
+from app.api.routes.ai import router as ai_router
 from app.api.routes.health import router as health_router
 from app.api.routes.journey_sessions import router as journey_sessions_router
 from app.api.routes.journeys import router as journeys_router
@@ -93,6 +94,9 @@ def create_app() -> FastAPI:
     app.include_router(journeys_router, prefix=settings.api_v1_prefix)
     app.include_router(journey_sessions_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
+    # Grounded AI assistance (Phase 8): optional, always answers with a
+    # validated AI explanation or the deterministic fallback.
+    app.include_router(ai_router, prefix=settings.api_v1_prefix)
 
     # Admin/data-operations endpoints are mounted only outside production.
     # Production must expose them behind OAuth2/OIDC + RBAC (architecture doc 14).
