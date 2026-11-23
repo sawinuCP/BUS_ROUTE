@@ -24,6 +24,7 @@ from app.modules.ai_assistance import explain
 from app.modules.journey_sessions import get_saved_journey
 from app.platform.config import get_settings
 from app.platform.db import get_session
+from app.platform.metrics import increment_counter
 
 router = APIRouter(tags=["ai"])
 
@@ -85,7 +86,12 @@ async def explain_step(session: SessionDep, request: Request, body: AIExplanatio
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result.serialize()
+    payload_out = result.serialize()
+    increment_counter(
+        "sljp_ai_explanations_total",
+        {"mode": payload_out["mode"], "source": payload_out["source"]},
+    )
+    return payload_out
 
 
 @router.post("/ai/why-route")
@@ -103,4 +109,9 @@ async def why_route(session: SessionDep, request: Request, body: AIExplanationRe
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result.serialize()
+    payload_out = result.serialize()
+    increment_counter(
+        "sljp_ai_explanations_total",
+        {"mode": payload_out["mode"], "source": payload_out["source"]},
+    )
+    return payload_out

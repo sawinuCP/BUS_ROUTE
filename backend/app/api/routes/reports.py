@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from app.modules.reports import create_report, serialize_report
 from app.platform.config import get_settings
 from app.platform.db import get_session
+from app.platform.metrics import increment_counter
 from app.platform.rate_limit import get_rate_limiter
 
 router = APIRouter(tags=["reports"])
@@ -61,6 +62,7 @@ async def submit_report(request: Request, session: SessionDep, body: ReportCreat
     settings = get_settings()
     client_key_addr = request.client.host if request.client else "unknown"
     if not get_rate_limiter("reports", settings).allow(client_key_addr):
+        increment_counter("sljp_rate_limited_total", {"scope": "reports"})
         raise HTTPException(
             status_code=429,
             detail="Too many reports from this client right now — please try again later.",
@@ -84,6 +86,7 @@ async def submit_report(request: Request, session: SessionDep, body: ReportCreat
         dataset_version_label=body.dataset_version_label,
     )
     await session.commit()
+    increment_counter("sljp_reports_submitted_total", {"duplicate": str(not created).lower()})
     payload = serialize_report(report)
     payload["duplicate"] = not created
     return payload

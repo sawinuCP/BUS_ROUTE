@@ -37,6 +37,7 @@ from app.modules.planner import (
 from app.modules.planner.cache import normalized_request_key
 from app.platform.config import get_settings
 from app.platform.db import get_session
+from app.platform.metrics import increment_counter
 from app.platform.plan_cache import RedisPlanCache
 from app.platform.redis_client import get_redis
 
@@ -114,6 +115,7 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
     cache = _cache()
     cached = await cache.get_json(key)
     if cached is not None:
+        increment_counter("sljp_planner_cache_total", {"type": "hit"})
         # Same request over the same network version → identical options.
         snapshot = {k: v for k, v in cached.items() if k != "cache"}
         if request.save:
@@ -134,6 +136,8 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
         cached["cache"] = "hit"
         return cached
 
+    increment_counter("sljp_planner_cache_total", {"type": "miss"})
+
     planner = JourneyPlanner(network, get_walking_router())
     result = await planner.plan(
         request.origin.to_endpoint(),
@@ -144,6 +148,7 @@ async def plan_journey(session: SessionDep, request: PlanRequest) -> Any:
     payload = serialize_result(result, network=network, language=request.language)
     payload["cache"] = "miss"
     payload["language"] = request.language
+    increment_counter("sljp_plans_total", {"status": str(payload["status"])})
     if request.language != "en":
         payload["notes"] = [
             *payload["notes"],

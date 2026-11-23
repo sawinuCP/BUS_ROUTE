@@ -45,6 +45,16 @@ def _reset_rate_limiters() -> Iterator[None]:
     reset_rate_limiters()
 
 
+@pytest.fixture(autouse=True)
+def _reset_metrics() -> Iterator[None]:
+    """Phase 9 item 5: metric state must not leak between tests."""
+    from app.platform.metrics import reset_metrics
+
+    reset_metrics()
+    yield
+    reset_metrics()
+
+
 @pytest.fixture
 def client():
     """Synchronous TestClient over the app factory (httpx under the hood)."""

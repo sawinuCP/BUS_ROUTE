@@ -8,6 +8,7 @@ Run locally (host or container):
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,6 +24,7 @@ from app.api.routes.ai import router as ai_router
 from app.api.routes.health import router as health_router
 from app.api.routes.journey_sessions import router as journey_sessions_router
 from app.api.routes.journeys import router as journeys_router
+from app.api.routes.ops import router as ops_router
 from app.api.routes.pedestrian import router as pedestrian_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.search import router as search_router
@@ -30,9 +32,36 @@ from app.platform.config import get_settings
 from app.platform.db import dispose_engine
 from app.platform.errors import register_exception_handlers
 from app.platform.logging import configure_logging
+from app.platform.metrics import increment_counter, normalize_path, observe_duration_ms
 from app.platform.redis_client import close_redis
 
 logger = logging.getLogger(__name__)
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Request counters + latency histogram + Server-Timing (Phase 9, item 5).
+
+    Labels are bounded: route template when resolved, otherwise the path
+    with UUID/numeric segments replaced by `{id}`.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        started = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        # The real request path with UUID/numeric segments replaced by {id}:
+        # bounded cardinality without depending on route-object internals.
+        path_label = normalize_path(request.url.path)
+        labels = {
+            "method": request.method,
+            "path": path_label,
+            "status": str(response.status_code),
+        }
+        increment_counter("sljp_http_requests_total", labels)
+        observe_duration_ms("sljp_http_request_duration_ms", {"path": path_label}, duration_ms)
+        # Lightweight tracing: server-side processing time per request.
+        response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -104,8 +133,10 @@ def create_app() -> FastAPI:
 
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(MetricsMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router, prefix=settings.api_v1_prefix)
+    app.include_router(ops_router, prefix=settings.api_v1_prefix)
     app.include_router(search_router, prefix=settings.api_v1_prefix)
     app.include_router(pedestrian_router, prefix=settings.api_v1_prefix)
     app.include_router(journeys_router, prefix=settings.api_v1_prefix)

@@ -18,6 +18,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.platform import error_sink
+from app.platform.metrics import increment_counter, normalize_path
+
 logger = logging.getLogger(__name__)
 
 _STATUS_TO_CODE: dict[int, str] = {
@@ -89,6 +92,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
             "error_type": type(exc).__name__,
         },
     )
+    increment_counter("sljp_unhandled_errors_total", {"path": normalize_path(request.url.path)})
+    await error_sink.report_error(request_id, request.url.path, type(exc).__name__)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=error_envelope(

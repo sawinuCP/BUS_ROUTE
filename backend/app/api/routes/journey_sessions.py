@@ -25,6 +25,7 @@ from app.modules.journey_sessions import (
 )
 from app.modules.pedestrian.router import get_walking_router
 from app.platform.db import get_session
+from app.platform.metrics import increment_counter
 
 router = APIRouter(tags=["journey-sessions"])
 
@@ -68,6 +69,7 @@ async def start_journey_session(session: SessionDep, request: StartSessionReques
             detail="saved journey or option not found — save the plan first (save: true)",
         )
     await session.commit()
+    increment_counter("sljp_journey_sessions_started_total")
     return payload
 
 
@@ -94,6 +96,7 @@ async def post_session_event(
     if payload is None:
         raise HTTPException(status_code=404, detail="journey session not found")
     await session.commit()
+    increment_counter("sljp_journey_session_events_total", {"event": request.event_type})
     return payload
 
 
@@ -109,4 +112,8 @@ async def replan_journey_session(
     if payload is None:
         raise HTTPException(status_code=404, detail="journey session not found")
     await session.commit()
+    increment_counter(
+        "sljp_journey_session_replans_total",
+        {"outcome": "replanned" if payload.get("replanned") else "no_replacement"},
+    )
     return payload

@@ -219,6 +219,29 @@ comprehension help on top of the deterministic planner. The contract:
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
   `Cache-Control: no-store`. HTTPS/HSTS terminates at the reverse proxy.
 
+## Metrics, tracing, dashboards and crash reporting (Phase 9 item 5)
+
+- **`GET /metrics`** — Prometheus text exposition (counters + request-latency
+  histograms) with bounded labels (route path with UUID/numeric segments
+  normalized to `{id}`). Public for scrapers inside the network; restrict at
+  the reverse proxy per deployment. In-process/single-node — aggregation for
+  multi-node is a release-checklist item.
+- **`Server-Timing: app;dur=<ms>`** on every response — lightweight tracing
+  of server-side processing time (request id continues to flow via
+  `X-Request-ID`).
+- **Domain counters**: `sljp_plans_total{status}`, `sljp_planner_cache_total{type}`,
+  `sljp_journey_sessions_started_total`, `sljp_journey_session_events_total{event}`,
+  `sljp_journey_session_replans_total{outcome}`, `sljp_reports_submitted_total{duplicate}`,
+  `sljp_rate_limited_total{scope}`, `sljp_ai_explanations_total{mode,source}`,
+  `sljp_admin_actions_total{action,outcome}`, `sljp_unhandled_errors_total{path}`.
+- **`GET /ops/dashboard`** — self-contained HTML operator page rendering the
+  same snapshot; requires the admin bearer token (same fail-closed rules).
+- **Crash reporting**: with `ERROR_WEBHOOK_URL` configured, unhandled
+  exceptions post a minimal JSON payload (service, request id, path, error
+  type, timestamp) to any JSON webhook collector — provider-neutral, no
+  SDK; exception text/stacks stay in the local log stream. Sink failures
+  are swallowed and logged; unset URL = disabled.
+
 ## Local-first data and privacy (Phase 7 item 10)
 
 - **Saved journeys**: anonymous (no account), stored server-side as the exact

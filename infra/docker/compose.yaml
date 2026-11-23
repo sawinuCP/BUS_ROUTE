@@ -67,6 +67,8 @@ services:
       # local/test) + per-client report throttle.
       ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
       REPORT_RATE_LIMIT_PER_MINUTE: ${REPORT_RATE_LIMIT_PER_MINUTE:-60}
+      ERROR_WEBHOOK_URL: ${ERROR_WEBHOOK_URL:-}
+      ERROR_WEBHOOK_TIMEOUT_SECONDS: ${ERROR_WEBHOOK_TIMEOUT_SECONDS:-2}
     volumes:
       - ../../backend:/srv
     ports:

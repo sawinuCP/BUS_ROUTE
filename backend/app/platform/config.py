@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     admin_api_token: str = ""
     # Per-client throttle for traveller report submissions (abuse protection).
     report_rate_limit_per_minute: int = 60
+    # Optional crash-reporting sink: unhandled exceptions post a minimal JSON
+    # payload (no messages/stack traces) to this URL. Empty = disabled.
+    error_webhook_url: str = ""
+    error_webhook_timeout_seconds: float = 2.0
 
     @property
     def is_local(self) -> bool:

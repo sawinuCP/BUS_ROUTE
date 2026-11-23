@@ -69,6 +69,28 @@ staging/production (fail closed); only local/test run in dev mode.
   (from `backend/`) — writes `backend/data/validation_reports/
   ai-grounding-<stamp>.md`; the fixed offline set runs on every gate.
 
+## 5. Metrics, dashboards, tracing and crash reporting
+
+- **Metrics**: `GET /api/v1/metrics` (Prometheus text). Point Prometheus or
+  any scraper at it. Key series: `sljp_http_requests_total{method,path,status}`,
+  `sljp_http_request_duration_ms` (histogram), `sljp_plans_total{status}`,
+  `sljp_planner_cache_total{type}`, `sljp_journey_sessions_started_total`,
+  `sljp_journey_session_events_total{event}`, `sljp_journey_session_replans_total{outcome}`,
+  `sljp_reports_submitted_total{duplicate}`, `sljp_rate_limited_total{scope}`,
+  `sljp_ai_explanations_total{mode,source}`, `sljp_admin_actions_total{action,outcome}`,
+  `sljp_unhandled_errors_total{path}`.
+- **Dashboard**: `GET /api/v1/ops/dashboard` (admin token) — the same
+  snapshot as a self-contained HTML page for a quick look.
+- **Tracing**: every response carries `X-Request-ID` (accept an incoming
+  one to correlate across hops) and `Server-Timing: app;dur=<ms>`.
+- **Crash reporting**: set `ERROR_WEBHOOK_URL` to any JSON webhook
+  collector (Sentry-compatible endpoints, Opsgenie, n8n, a log relay...).
+  Unhandled exceptions post service/request-id/path/error-type only —
+  exception text and stacks stay in the log stream. The sink never breaks
+  a response; verify with `ERROR_WEBHOOK_URL` unset (disabled) vs set.
+- Single-node caveat: metrics are in-process; aggregate per replica or move
+  to Redis/StatsD before scaling out.
+
 ## 6. Log stream and audit
 
 - Single-line JSON logs on stdout (request id, level, logger, message +

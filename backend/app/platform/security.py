@@ -25,6 +25,7 @@ from typing import Any
 from fastapi import HTTPException, Request, status
 
 from app.platform.config import get_settings
+from app.platform.metrics import increment_counter
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +104,4 @@ def audit_admin_action(
     if details:
         payload["details"] = details
     logger.info("admin_audit", extra=payload)
+    increment_counter("sljp_admin_actions_total", {"action": action, "outcome": outcome})
